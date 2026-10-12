@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
 import pytest
-from scipy.optimize import curve_fit
+from scipy.optimize import OptimizeWarning, curve_fit
 
 from gtellcorr.constants import C_KMS
 from gtellcorr.preprocessing.synthesis import broaden_template
@@ -29,10 +30,14 @@ def _sigma_and_shift(wave: Any, flux: Any, centre: float) -> tuple[float, float]
     """Fitted width [km/s] and centre shift [m/s] of one line."""
     v = (wave / centre - 1.0) * C_KMS
     sel = np.abs(v) < 40.0
-    (_, mu, s), _ = curve_fit(
-        lambda x, a, mu, s: 1.0 - a * np.exp(-0.5 * ((x - mu) / s) ** 2),
-        v[sel], flux[sel], p0=(0.3, 0.0, 3.0),
-    )  # fmt: skip
+    # noise-free lines: the residuals can vanish, so the (unused) covariance may not be
+    # estimable on some platforms
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OptimizeWarning)
+        (_, mu, s), _ = curve_fit(
+            lambda x, a, mu, s: 1.0 - a * np.exp(-0.5 * ((x - mu) / s) ** 2),
+            v[sel], flux[sel], p0=(0.3, 0.0, 3.0),
+        )  # fmt: skip
     return abs(float(s)), float(mu) * 1000.0
 
 

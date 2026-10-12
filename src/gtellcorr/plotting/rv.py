@@ -186,8 +186,8 @@ def plot_rv_master_vs_perorder(
     rv, rv_err, po_mean, po_std = rv[good], rv_err[good], po_mean[good], po_std[good]
 
     fig, ax = plt.subplots(figsize=(5.2, 5))
-    lo = min(rv.min(), po_mean.min()) - 0.3
-    hi = max(rv.max(), po_mean.max()) + 0.3
+    lo = min(np.min(rv), np.min(po_mean)) - 0.3
+    hi = max(np.max(rv), np.max(po_mean)) + 0.3
     ax.plot([lo, hi], [lo, hi], "k--", lw=0.8)
     ax.errorbar(po_mean, rv, xerr=po_std, yerr=rv_err, fmt="o", ms=4, color="C0")
     ax.set(

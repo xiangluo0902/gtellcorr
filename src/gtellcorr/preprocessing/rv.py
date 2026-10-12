@@ -25,7 +25,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -170,7 +170,7 @@ def normalize_continuum(
             break
         good = np.isfinite(f) & (resid < hi * s) & (resid > -lo * s)
     cont = np.where(np.abs(cont) > 1e-6, cont, 1.0)
-    return cast(Array, f / cont)
+    return np.asarray(f / cont, dtype=np.float64)
 
 
 def _gaussian(v: Any, amp: float, mu: float, sig: float, off: float) -> Any:

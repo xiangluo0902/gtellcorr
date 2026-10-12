@@ -20,7 +20,9 @@ more instruments will follow.
 
 ## Installation
 
-gtellcorr needs Python 3.11 or later, and runs on macOS and Linux.
+gtellcorr needs Python 3.11 or later, and runs on macOS and Linux. On macOS 14 or
+earlier, pip has to compile the `pymsis` dependency, which needs a Fortran compiler
+(for example `conda install -c conda-forge gfortran`).
 
 ```bash
 pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.0"
