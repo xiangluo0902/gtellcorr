@@ -1,0 +1,188 @@
+{
+  "atmosphere_references": {
+    "rfm_mipas_midlatitude_night": {
+      "file_name": "rfm_mipas_midlatitude_night_v3_20010103.atm",
+      "sha256": "539da9443f6d9d61610922c8b698ef8a7c147488bbcf827d58cf3ae8e1a76b4c",
+      "source_url": "https://eodg.atm.ox.ac.uk/RFM/atm/ngt.atm"
+    }
+  },
+  "contract_id": "lblrtm-12.17_lnfl-3.2_aer-line-file-3.9_mt-ckd-4.3_double",
+  "derived_from": "lblrtm_v12_17_lnfl_v3_2_aer_v3_9_gnu_double_project_runtime_manifest.json",
+  "description": "LBLRTM v12.17 (double precision) with LNFL v3.2, the AER v3.9 line file and MT_CKD 4.3, as used in the gtellcorr paper.",
+  "identity": {
+    "lnfl_tape5_sha256": "9a08cc09d32163c2071da53f15682710c3160111442a99b3265add51bf218d0c",
+    "mt_ckd_h2o_continuum_coefficients": {
+      "sha256": "69944eb8b045c268e2daeb2cddf536b99f9e9efe7e91c425067b46a5b287ddb3",
+      "size_bytes": 83576
+    },
+    "precision": {
+      "lblrtm": "double",
+      "lnfl": "single",
+      "tape12_abi": {
+        "byte_order": "little",
+        "integer_bytes": 8,
+        "real_bytes": 8,
+        "record_marker_bytes": 4
+      }
+    },
+    "scientific_contract": {
+      "actual_line_bounds_cm1": [
+        2000.0008544921875,
+        33333.1640625
+      ],
+      "line_basis": "AER line file v3.9, derived principally from HITRAN2020",
+      "line_count_by_molecule_id": {
+        "1": 399519,
+        "10": 74774,
+        "11": 35491,
+        "12": 0,
+        "13": 44243,
+        "14": 18046,
+        "15": 42341,
+        "16": 6440,
+        "17": 3084,
+        "18": 0,
+        "19": 23334,
+        "2": 373624,
+        "20": 31796,
+        "21": 5020,
+        "22": 1110,
+        "23": 83963,
+        "24": 68832,
+        "25": 0,
+        "26": 27491,
+        "27": 9275,
+        "28": 65608,
+        "29": 25,
+        "3": 209520,
+        "30": 0,
+        "31": 45704,
+        "32": 0,
+        "33": 3466,
+        "34": 0,
+        "35": 0,
+        "36": 928,
+        "37": 0,
+        "38": 7162,
+        "39": 0,
+        "4": 97620,
+        "40": 0,
+        "41": 0,
+        "42": 0,
+        "43": 0,
+        "44": 0,
+        "45": 13543,
+        "46": 198,
+        "47": 1527,
+        "5": 3396,
+        "6": 299603,
+        "7": 2549,
+        "8": 200250,
+        "9": 117334
+      },
+      "molecule_selection_mask": "11111111111111111111111111111111111111111111111",
+      "nominal_wavelength_coverage_nm": [
+        300.0,
+        5000.0
+      ],
+      "nonzero_molecule_count_in_range": 33,
+      "requested_bounds_cm1": [
+        2000.0,
+        33333.333
+      ],
+      "runtime_profile_count": 12,
+      "selected_molecule_count": 47,
+      "selected_molecule_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47
+      ],
+      "selection_field_width": 47,
+      "tape3_linmol": 47,
+      "total_line_count": 2316816
+    },
+    "sources": {
+      "aer_line_file": {
+        "sha256": "08c990768fc3b69dc65538325eadd4df633106a0e6456cba3da072cf4357acb8",
+        "size_bytes": 795553321
+      },
+      "aer_line_file_archive": {
+        "sha256": "3a55d5deb9430894ce61e1a23475ad1ed7ef01f0a5c527ee6f08d9e5676a0e4e",
+        "size_bytes": 405878572
+      },
+      "lblrtm_source_archive": {
+        "sha256": "f419bb700d4a42bc809c647672058e1a791fff62f86cf778d3ed642750c1c16a",
+        "size_bytes": 122335744
+      },
+      "lnfl_source_archive": {
+        "sha256": "6e11749cc5eee2babb4ab07ee791b0217fad44c2d92973912c750663b7f8ad02",
+        "size_bytes": 2209280
+      }
+    },
+    "tape3": {
+      "scientific_sha256": "48c671f894179518775e4e345c0ba6b77ef0b5a626e87fb2f7ff436db49850f4",
+      "semantic_sha256": "a025373fc73fbe5fa8db970b05b16bbba8a4eb91b7998afc454df74ce2eb26da"
+    }
+  },
+  "open_items": [
+    "The three source archives are attached to the gtellcorr v0.9.0 release (https://github.com/xiangluo0902/gtellcorr/releases/tag/v0.9.0); how they correspond to the files AER distributes is not documented."
+  ],
+  "source_archives": {
+    "aer_line_file_archive": {
+      "file_name": "aer_v_3.9.tgz",
+      "release": null
+    },
+    "lblrtm_source_archive": {
+      "file_name": "aerlbl_v12.17.tar",
+      "release": "https://github.com/AER-RC/LBLRTM/releases/tag/v12.17"
+    },
+    "lnfl_source_archive": {
+      "file_name": "aerlnfl_v3.2.tar",
+      "release": "https://github.com/AER-RC/LNFL/releases/tag/v3.2"
+    }
+  }
+}

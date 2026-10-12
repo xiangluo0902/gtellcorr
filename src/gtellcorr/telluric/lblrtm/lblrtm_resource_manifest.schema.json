@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gtellcorr.local/schemas/lblrtm-resource-manifest-v2.json",
+  "title": "gtellcorr LBLRTM resource manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "resource_set_id",
+    "status",
+    "created_utc",
+    "scientific_contract",
+    "sources",
+    "build_contract",
+    "products",
+    "compatibility",
+    "licenses",
+    "citations"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "resource_set_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "candidate",
+        "accepted",
+        "retired"
+      ]
+    },
+    "created_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scientific_contract": {
+      "$ref": "#/$defs/scientificContract"
+    },
+    "sources": {
+      "type": "object",
+      "minProperties": 1,
+      "required": [
+        "aer_line_file_archive",
+        "aer_line_file",
+        "lnfl_source_archive",
+        "lblrtm_source_archive"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/sourceRecord"
+      }
+    },
+    "build_contract": {
+      "$ref": "#/$defs/buildContract"
+    },
+    "products": {
+      "type": "object",
+      "minProperties": 1,
+      "required": [
+        "lnfl_executable",
+        "lblrtm_executable",
+        "lnfl_tape5",
+        "lnfl_tape6",
+        "tape3",
+        "mt_ckd_h2o_continuum_coefficients",
+        "build_recipe",
+        "lblrtm_addlibs_template"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/productRecord"
+      }
+    },
+    "compatibility": {
+      "type": "object"
+    },
+    "golden_compatibility": {
+      "type": "object"
+    },
+    "licenses": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/licenseRecord"
+      }
+    },
+    "citations": {
+      "type": "array"
+    },
+    "resolved_discrepancies": {
+      "type": "array"
+    },
+    "validation": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "build_contract": {
+            "$ref": "#/$defs/buildContractV2"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fileRecord": {
+      "type": "object",
+      "required": [
+        "relative_path",
+        "size_bytes",
+        "sha256",
+        "role",
+        "license_ref"
+      ],
+      "properties": {
+        "relative_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "license_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "sourceRecord": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileRecord"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "upstream_commit": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "productRecord": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileRecord"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "semantic_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "scientific_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "executable_format": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "licenseRecord": {
+      "type": "object",
+      "properties": {
+        "notice_file": {
+          "$ref": "#/$defs/fileRecord"
+        },
+        "redistribution": {
+          "type": "string",
+          "minLength": 1
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "notice_file"
+          ]
+        },
+        {
+          "required": [
+            "statement"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "buildContract": {
+      "type": "object",
+      "required": [
+        "runtime_distribution_status"
+      ],
+      "properties": {
+        "runtime_distribution_status": {
+          "enum": [
+            "host-bound",
+            "relocatable"
+          ]
+        },
+        "runtime_distribution_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "buildContractV2": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/buildContract"
+        },
+        {
+          "type": "object",
+          "required": [
+            "lnfl_precision",
+            "lblrtm_precision",
+            "lnfl_make_target",
+            "lblrtm_make_target",
+            "lnfl_product_basename",
+            "lblrtm_product_basename",
+            "tape12_abi"
+          ],
+          "properties": {
+            "lnfl_precision": {
+              "const": "single"
+            },
+            "lblrtm_precision": {
+              "enum": [
+                "single",
+                "double"
+              ]
+            },
+            "lnfl_make_target": {
+              "const": "osxGNUsgl"
+            },
+            "lblrtm_make_target": {
+              "enum": [
+                "osxGNUsgl",
+                "osxGNUdbl"
+              ]
+            },
+            "lnfl_product_basename": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/]+_sgl$"
+            },
+            "lblrtm_product_basename": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/]+_(?:sgl|dbl)$"
+            },
+            "tape12_abi": {
+              "$ref": "#/$defs/tape12Abi"
+            }
+          }
+        }
+      ]
+    },
+    "tape12Abi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "byte_order",
+        "record_marker_bytes",
+        "real_bytes",
+        "integer_bytes"
+      ],
+      "properties": {
+        "byte_order": {
+          "enum": [
+            "little",
+            "big"
+          ]
+        },
+        "record_marker_bytes": {
+          "enum": [
+            4,
+            8
+          ]
+        },
+        "real_bytes": {
+          "enum": [
+            4,
+            8
+          ]
+        },
+        "integer_bytes": {
+          "enum": [
+            4,
+            8
+          ]
+        }
+      }
+    },
+    "scientificContract": {
+      "type": "object",
+      "required": [
+        "requested_bounds_cm1",
+        "actual_line_bounds_cm1",
+        "nominal_wavelength_coverage_nm",
+        "selection_field_width",
+        "molecule_selection_mask",
+        "selected_molecule_ids",
+        "selected_molecule_count",
+        "tape3_linmol",
+        "nonzero_molecule_count_in_range",
+        "runtime_profile_count",
+        "total_line_count",
+        "line_count_by_molecule_id"
+      ],
+      "properties": {
+        "requested_bounds_cm1": {
+          "$ref": "#/$defs/twoNumbers"
+        },
+        "actual_line_bounds_cm1": {
+          "$ref": "#/$defs/twoNumbers"
+        },
+        "nominal_wavelength_coverage_nm": {
+          "$ref": "#/$defs/twoNumbers"
+        },
+        "selection_field_width": {
+          "const": 47
+        },
+        "molecule_selection_mask": {
+          "type": "string",
+          "pattern": "^[01]{47}$"
+        },
+        "selected_molecule_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 47
+          },
+          "uniqueItems": true
+        },
+        "selected_molecule_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 47
+        },
+        "tape3_linmol": {
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 47
+        },
+        "nonzero_molecule_count_in_range": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 47
+        },
+        "runtime_profile_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 47
+        },
+        "total_line_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "line_count_by_molecule_id": {
+          "type": "object",
+          "minProperties": 47,
+          "maxProperties": 47,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "twoNumbers": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    }
+  }
+}

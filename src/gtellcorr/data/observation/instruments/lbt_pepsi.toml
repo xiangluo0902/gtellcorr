@@ -1,0 +1,162 @@
+# Built-in instrument definition for gtellcorr.
+# Every key is described in gtellcorr.data.observation.instrument.InstrumentSpec.
+schema_version = 4
+
+[instrument]
+# Registered name, ``"telescope/instrument"`` (e.g. ``"WIYN/NEID"``).
+name = "LBT/PEPSI"
+# Other accepted names, e.g. the bare instrument name.
+aliases = ["PEPSI"]
+# Short site tag used in output directory names, e.g. ``KPNO``.
+site_token = "LBT"
+# Site registry name used for coordinates missing from the headers.
+default_site = "lbt"
+# Channel used when none is requested; required if there are several channels.
+default_channel = "red"
+# (card, value): keep only frames whose card equals value (case-insensitive).
+science_filter = ["IMAGETYP", "object"]
+# Epoch = start + EXPTIME/2.
+mid_exposure = true
+# All order indices of a spectrum file.
+orders = [0]
+
+# Primary-header cards and values that identify the instrument (case-insensitive).
+[instrument.identify]
+INSTRUME = "PEPSI"
+
+# Channel (fibre / arm) name -> file-name glob of its reduced spectra.
+[instrument.channels]
+red = "pepsir.*.dxt.nor"
+blue = "pepsib.*.dxt.nor"
+
+# Resolving power: default and how to read it from the header.
+[instrument.resolution]
+# R used when the header carries no resolution information.
+default = 130000.0
+# Header cards read for R (first present wins); empty = always use ``default``.
+keys = ["FIBER"]
+
+# Card value -> R (e.g. PEPSI fibre diameter ``"200"`` -> 130000); empty = the card
+# holds R itself.
+[instrument.resolution.map]
+300 = 50000.0
+200 = 130000.0
+100 = 250000.0
+
+# Where the header holds the site, epoch, airmass and on-site weather.
+[instrument.header]
+
+# Site latitude [deg, North-positive].
+[instrument.header.lat]
+# Cards tried in order; the first present, finite value wins. Empty = not provided.
+keys = ["LATITUDE"]
+# ``deg`` / ``m`` / ``degC`` / ``pct`` / ``hpa`` / ``s`` / ``float``: plain number;
+# ``dms``: sexagesimal degrees; ``hms_hours``: sexagesimal hours (East-positive, x15);
+# ``iso``: one ISO-8601 card; ``date+time``: ``keys = [date_card, time_card]``.
+fmt = "dms"
+# Julian-date (or MJD) cards used when the time cards cannot be parsed. They must
+# give the same epoch as the time cards (start or mid-exposure), in UTC.
+jd_keys = []
+
+# Site longitude [deg, East-positive].
+[instrument.header.lon]
+keys = ["LONGITUD"]
+fmt = "hms_hours"
+jd_keys = []
+
+# Site altitude [m].
+[instrument.header.alt_m]
+keys = ["ALTITUDE"]
+fmt = "m"
+jd_keys = []
+
+# Exposure epoch (start).
+[instrument.header.time]
+keys = ["DATE-OBS", "TIME-OBS"]
+fmt = "date+time"
+jd_keys = []
+
+# Exposure time [s], for the mid-exposure epoch.
+[instrument.header.exptime]
+keys = ["EXPTIME"]
+fmt = "s"
+jd_keys = []
+
+# Barycentric Julian Date (BJD_TDB) of mid-exposure, as a full JD (``fmt =
+# "float"``); written to the RV table. Without it, the JD (UTC) of the exposure
+# epoch is used.
+[instrument.header.bjd]
+keys = ["JD-TDB"]
+fmt = "float"
+jd_keys = []
+
+# Airmass of the exposure.
+[instrument.header.airmass]
+keys = ["AIRMASS"]
+fmt = "float"
+jd_keys = []
+
+# On-site air temperature [degC].
+[instrument.header.asm_T]
+keys = ["LBTT"]
+fmt = "degC"
+jd_keys = []
+
+# On-site relative humidity [%].
+[instrument.header.asm_RH]
+keys = ["LBTH"]
+fmt = "pct"
+jd_keys = []
+
+# On-site pressure [hPa].
+[instrument.header.asm_P]
+keys = ["LBTP"]
+fmt = "hpa"
+jd_keys = []
+
+# On-site dew point [degC].
+[instrument.header.asm_dew]
+keys = []
+jd_keys = []
+
+# Time stamp of the on-site measurement.
+[instrument.header.asm_time]
+keys = []
+jd_keys = []
+
+# How to read the spectra.
+[instrument.spectral]
+# Name of a registered spectrum reader (``echelle_hdu``, ``pepsi_dxt``).
+reader = "pepsi_dxt"
+# Uncertainties given as variances (``var``) or standard deviations (``err``).
+uncertainty_kind = "var"
+# Unit of the delivered wavelengths.
+wave_unit = "A"
+# Primary-header card read by the spectrum reader for the airmass.
+airmass_card = "AIRMASS"
+# Approximate spectral coverage [nm].
+wavelength_range_nm = [623.27, 741.79]
+
+# Frame of the delivered wavelengths.
+[instrument.spectral.frame]
+# Medium of the delivered wavelengths.
+wavelength_medium = "air"
+# Combined velocities [m/s] removed by the reduction (numbers or header keys);
+# if given, the BERV/Vsys flags below are ignored.
+removed_velocity_mps = ["SSTVEL"]
+# The reduction moved the wavelengths to the barycentric frame (BERV removed).
+berv_corrected = false
+# The reduction also moved the wavelengths to the stellar rest frame (Vsys removed).
+vsys_corrected = false
+
+# Table columns (table readers): ``wave``, ``flux``, ``variance``, ``mask``.
+[instrument.spectral.columns]
+wave = "Arg"
+flux = "Fun"
+variance = "Var"
+mask = "Mask"
+
+# Default per-molecule fit orders (molecule -> orders).
+[instrument.anchor_orders]
+o2 = [0]
+h2o = [0]

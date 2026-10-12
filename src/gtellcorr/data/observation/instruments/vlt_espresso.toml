@@ -1,0 +1,183 @@
+# Built-in instrument definition for gtellcorr.
+# Every key is described in gtellcorr.data.observation.instrument.InstrumentSpec.
+schema_version = 4
+
+[instrument]
+# Registered name, ``"telescope/instrument"`` (e.g. ``"WIYN/NEID"``).
+name = "VLT/ESPRESSO"
+# Other accepted names, e.g. the bare instrument name.
+aliases = ["ESPRESSO"]
+# Short site tag used in output directory names, e.g. ``KPNO``.
+site_token = "Paranal"
+# Site registry name used for coordinates missing from the headers.
+default_site = "paranal"
+# Epoch = start + EXPTIME/2.
+mid_exposure = true
+# All order indices of a spectrum file.
+orders = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+    23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
+    44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+    65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85,
+    86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+    105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121,
+    122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
+    139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
+    156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169,
+]
+
+# Primary-header cards and values that identify the instrument (case-insensitive).
+[instrument.identify]
+INSTRUME = "ESPRESSO"
+
+# Channel (fibre / arm) name -> file-name glob of its reduced spectra.
+[instrument.channels]
+all = "r.ESPRE.*_S2D_A.fits"
+
+# Resolving power: default and how to read it from the header.
+[instrument.resolution]
+# R used when the header carries no resolution information.
+default = 140000.0
+# Header cards read for R (first present wins); empty = always use ``default``.
+keys = ["ESO INS MODE"]
+
+# Card value -> R (e.g. PEPSI fibre diameter ``"200"`` -> 130000); empty = the card
+# holds R itself.
+[instrument.resolution.map]
+SINGLEHR = 140000.0
+SINGLEUHR = 190000.0
+MULTIMR = 70000.0
+
+# Where the header holds the site, epoch, airmass and on-site weather.
+[instrument.header]
+
+# Site latitude [deg, North-positive].
+[instrument.header.lat]
+# Cards tried in order; the first present, finite value wins. Empty = not provided.
+keys = ["ESO TEL1 GEOLAT", "ESO TEL2 GEOLAT", "ESO TEL3 GEOLAT", "ESO TEL4 GEOLAT"]
+# ``deg`` / ``m`` / ``degC`` / ``pct`` / ``hpa`` / ``s`` / ``float``: plain number;
+# ``dms``: sexagesimal degrees; ``hms_hours``: sexagesimal hours (East-positive, x15);
+# ``iso``: one ISO-8601 card; ``date+time``: ``keys = [date_card, time_card]``.
+fmt = "deg"
+# Julian-date (or MJD) cards used when the time cards cannot be parsed. They must
+# give the same epoch as the time cards (start or mid-exposure), in UTC.
+jd_keys = []
+
+# Site longitude [deg, East-positive].
+[instrument.header.lon]
+keys = ["ESO TEL1 GEOLON", "ESO TEL2 GEOLON", "ESO TEL3 GEOLON", "ESO TEL4 GEOLON"]
+fmt = "deg"
+jd_keys = []
+
+# Site altitude [m].
+[instrument.header.alt_m]
+keys = ["ESO TEL1 GEOELEV", "ESO TEL2 GEOELEV", "ESO TEL3 GEOELEV", "ESO TEL4 GEOELEV"]
+fmt = "m"
+jd_keys = []
+
+# Exposure epoch (start).
+[instrument.header.time]
+keys = ["DATE-OBS"]
+fmt = "iso"
+jd_keys = ["MJD-OBS"]
+
+# Exposure time [s], for the mid-exposure epoch.
+[instrument.header.exptime]
+keys = ["EXPTIME"]
+fmt = "s"
+jd_keys = []
+
+# Barycentric Julian Date (BJD_TDB) of mid-exposure, as a full JD (``fmt =
+# "float"``); written to the RV table. Without it, the JD (UTC) of the exposure
+# epoch is used.
+[instrument.header.bjd]
+keys = ["ESO QC BJD"]
+fmt = "float"
+jd_keys = []
+
+# Airmass of the exposure.
+[instrument.header.airmass]
+keys = [
+    "ESO TEL1 AIRM START", "ESO TEL2 AIRM START", "ESO TEL3 AIRM START",
+    "ESO TEL4 AIRM START",
+]
+fmt = "float"
+jd_keys = []
+
+# On-site air temperature [degC].
+[instrument.header.asm_T]
+keys = [
+    "ESO TEL1 AMBI TEMP", "ESO TEL2 AMBI TEMP", "ESO TEL3 AMBI TEMP",
+    "ESO TEL4 AMBI TEMP",
+]
+fmt = "degC"
+jd_keys = []
+
+# On-site relative humidity [%].
+[instrument.header.asm_RH]
+keys = [
+    "ESO TEL1 AMBI RHUM", "ESO TEL2 AMBI RHUM", "ESO TEL3 AMBI RHUM",
+    "ESO TEL4 AMBI RHUM",
+]
+fmt = "pct"
+jd_keys = []
+
+# On-site pressure [hPa].
+[instrument.header.asm_P]
+keys = [
+    "ESO TEL1 AMBI PRES START", "ESO TEL2 AMBI PRES START", "ESO TEL3 AMBI PRES START",
+    "ESO TEL4 AMBI PRES START",
+]
+fmt = "hpa"
+jd_keys = []
+
+# On-site dew point [degC].
+[instrument.header.asm_dew]
+keys = []
+jd_keys = []
+
+# Time stamp of the on-site measurement.
+[instrument.header.asm_time]
+keys = []
+jd_keys = []
+
+# How to read the spectra.
+[instrument.spectral]
+# Name of a registered spectrum reader (``echelle_hdu``, ``pepsi_dxt``).
+reader = "echelle_hdu"
+# HDU with wavelengths (echelle readers).
+wave = "WAVEDATA_AIR_BARY"
+# HDU with fluxes (echelle readers).
+flux = "SCIDATA"
+# HDU with uncertainties (echelle readers).
+uncertainty = "ERRDATA"
+# Uncertainties given as variances (``var``) or standard deviations (``err``).
+uncertainty_kind = "err"
+# Unit of the delivered wavelengths.
+wave_unit = "A"
+# Primary-header card read by the spectrum reader for the airmass.
+airmass_card = "ESO TEL1 AIRM START"
+# Approximate spectral coverage [nm].
+wavelength_range_nm = [377.09, 790.51]
+
+# Frame of the delivered wavelengths.
+[instrument.spectral.frame]
+# Medium of the delivered wavelengths.
+wavelength_medium = "air"
+# Combined velocities [m/s] removed by the reduction (numbers or header keys);
+# if given, the BERV/Vsys flags below are ignored.
+removed_velocity_mps = []
+# The reduction moved the wavelengths to the barycentric frame (BERV removed).
+berv_corrected = true
+# BERV [km/s] or the header keyword holding it.
+berv_kms = "ESO QC BERV"
+# The reduction also moved the wavelengths to the stellar rest frame (Vsys removed).
+vsys_corrected = false
+
+# Table columns (table readers): ``wave``, ``flux``, ``variance``, ``mask``.
+[instrument.spectral.columns]
+
+# Default per-molecule fit orders (molecule -> orders).
+[instrument.anchor_orders]
+h2o = [146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159]
+o2 = [128, 129, 130, 131, 146, 147, 148, 149, 162, 163, 164, 165, 166, 167]

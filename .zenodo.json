@@ -1,0 +1,36 @@
+{
+  "title": "gtellcorr: telluric correction for high-resolution spectra",
+  "upload_type": "software",
+  "description": "Clean the Earth's atmosphere out of your high-resolution spectra. gtellcorr rebuilds the atmosphere above your telescope for every exposure, models its absorption with LBLRTM, and fits it alongside your star's own lines. The molecular columns, the instrumental resolution and the continuum are fitted with either a stellar-line mask or a stellar template, and the optical depths are cached so that fitting stays fast.",
+  "license": "MIT",
+  "keywords": [
+    "astronomy",
+    "spectroscopy",
+    "telluric correction",
+    "LBLRTM",
+    "high-resolution spectroscopy"
+  ],
+  "creators": [
+    {
+      "name": "Luo, Xiang",
+      "affiliation": "School of Physics and Astronomy, China West Normal University",
+      "orcid": "0009-0009-7220-3433"
+    },
+    {
+      "name": "Cao, Dongtao",
+      "affiliation": "Yunnan Observatories, Chinese Academy of Sciences"
+    },
+    {
+      "name": "Xiang, Yue",
+      "affiliation": "Yunnan Observatories, Chinese Academy of Sciences"
+    },
+    {
+      "name": "Wang, Kun",
+      "affiliation": "School of Physics and Astronomy, China West Normal University"
+    },
+    {
+      "name": "Gu, Shenghong",
+      "affiliation": "Yunnan Observatories, Chinese Academy of Sciences"
+    }
+  ]
+}

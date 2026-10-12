@@ -1,0 +1,333 @@
+name,latitude_deg,longitude_deg,altitude_km
+ALMA,-23.029,-67.755,5.0
+AO,18.34417,-66.75278,0.497
+ARCA,36.26667,16.1,-3.5
+ASKAP,-26.697,116.63142,0.361
+ATA,40.8175,-121.47333,0.986
+ATST,20.7067,-156.2564,3.067
+Allen Telescope Array,40.8175,-121.47333,0.986
+Anderson Mesa,35.09667,-111.535,2.198
+Anglo-Australian Observatory,-31.27704,149.06609,1.164
+Apache Point,32.78,-105.82,2.798
+Apache Point Observatory,32.78,-105.82,2.798
+Arecibo,18.34417,-66.75278,0.497
+Arecibo Observatory,18.34417,-66.75278,0.497
+Astroparticle Research with Cosmics in the Abyss,36.26667,16.1,-3.5
+Atacama Large Millimeter Array,-23.029,-67.755,5.0
+Australian Square Kilometre Array Pathfinder,-26.697,116.63142,0.361
+BAO,40.39333,117.575,0.95
+BBSO,34.2583,-116.9214,2.067
+Beijing XingLong Observatory,40.39333,117.575,0.95
+Big Bear Solar Observatory,34.2583,-116.9214,2.067
+Black Moshannon Observatory,40.92167,-78.005,0.738
+CAHA,37.22361,-2.54611,2.168
+CHARA,34.22258,-118.06168,1.742
+CHIME,49.32071,-119.62368,0.5554
+Canada-France-Hawaii Telescope,19.82667,-155.47167,4.215
+Canadian Hydrogen Intensity Mapping Experiment,49.32071,-119.62368,0.5554
+Catalina Observatory,32.41667,-110.73167,2.51
+Catalina Observatory: 61 inch telescope,32.41667,-110.73167,2.51
+"Centro Astronomico Hispano-Aleman, Almeria",37.22361,-2.54611,2.168
+Cerro Armazones Observatory,-24.59867,-70.20128,2.817
+Cerro Pachon,-30.24074,-70.73668,2.75
+Cerro Paranal,-24.62744,-70.40499,2.669
+Cerro Tololo,-30.16528,-70.815,2.215
+Cerro Tololo Interamerican Observatory,-30.16528,-70.815,2.215
+Cima Ekar 182 cm Telescope,45.84859,11.58113,1.413
+Cima Ekar Observing Station,45.84859,11.58113,1.413
+DCT,34.74431,-111.42251,2.337
+DKIST,20.7067,-156.2564,3.067
+DRAO,49.32102,-119.61898,0.5466
+DRAO 26m Telescope,49.32102,-119.61898,0.5466
+Daniel K. Inouye Solar Telescope,20.7067,-156.2564,3.067
+Discovery Channel Telescope,34.74431,-111.42251,2.337
+Dominion Astrophysical Observatory,48.52167,-123.41667,0.229
+Dominion Radio Astrophysical Observatory,49.32102,-119.61898,0.5466
+Effelsberg,50.52484,6.88362,0.4167
+Effelsberg 100-m Radio Telescope,50.52484,6.88362,0.4167
+FAST,25.65295,106.85667,1.1091
+Five-hundred-meter Aperture Spherical radio Telescope,25.65295,106.85667,1.1091
+G1,52.24515,9.80719,0.1144
+GBT,38.43306,-79.83972,0.807
+GEO,52.24515,9.80719,0.1144
+GEO600 Gravitational Wave Detector,52.24515,9.80719,0.1144
+GEO_600,52.24515,9.80719,0.1144
+GMRT,19.093,74.05656,0.497
+Gemini North,19.8238,-155.46905,4.213
+Gemini South,-30.24074,-70.73668,2.75
+Giant Metrewave Radio Telescope,19.093,74.05656,0.497
+Green Bank Observatory,38.43306,-79.83972,0.807
+Green Bank Telescope,38.43306,-79.83972,0.807
+H1,46.45515,-119.40766,0.1426
+HALO,46.475,-81.20111,-1.74
+HET,30.68139,-104.01472,2.026
+Hale Telescope,33.356,-116.863,1.706
+Haleakala Observatories,20.71552,-156.169,3.048
+Happy Jack,34.74431,-111.42251,2.337
+Hat Creek,40.8175,-121.47333,0.986
+Hat Creek Radio Observatory,40.8175,-121.47333,0.986
+Helium And Lead Observatory,46.475,-81.20111,-1.74
+Hobby Eberly Telescope,30.68139,-104.01472,2.026
+Hyper-Kamiokande,36.35558,137.31364,0.514
+HyperK,36.35558,137.31364,0.514
+Hyperk,36.35558,137.31364,0.514
+IAO,32.77944,78.96417,4.5
+ICECUBE,-90.0,0.0,0.85
+IceCube,-90.0,0.0,0.85
+IceCube Neutrino Observatory,-90.0,0.0,0.85
+Indian Astronomical Observatory,32.77944,78.96417,4.5
+JCMT,19.8228,-155.477,4.1247
+James Clerk Maxwell Telescope,19.8228,-155.477,4.1247
+Jansky Very Large Array,34.07875,-107.61828,2.124
+John Galt Telescope,49.32102,-119.61898,0.5466
+K1,36.41186,137.30596,0.4142
+KAGRA,36.41186,137.30596,0.4142
+KM3NeT ARCA,36.26667,16.1,-3.5
+KM3NeT ORCA,42.8,6.03333,-2.45
+KM3NeT arca,36.26667,16.1,-3.5
+KM3NeT orca,42.8,6.03333,-2.45
+Kamioka Gravitational Wave Detector,36.41186,137.30596,0.4142
+Keck Observatory,19.82833,-155.47833,4.16
+Kitt Peak,31.96333,-111.6,2.12
+Kitt Peak National Observatory,31.96333,-111.6,2.12
+L1,30.56289,-90.77424,-0.0066
+LDT,34.74431,-111.42251,2.337
+LHO,46.45515,-119.40766,0.1426
+LHO_4k,46.45515,-119.40766,0.1426
+LIGO Hanford Observatory,46.45515,-119.40766,0.1426
+LIGO Livingston Observatory,30.56289,-90.77424,-0.0066
+LLO,30.56289,-90.77424,-0.0066
+LLO_4k,30.56289,-90.77424,-0.0066
+LOFAR,52.91512,6.86983,0.0494
+LSST,-30.24463,-70.74942,2.6628
+LSST 1.4m,-30.2448,-70.74772,2.647
+LSST 8.4m,-30.24463,-70.74942,2.6628
+LSST AuxTel,-30.2448,-70.74772,2.647
+LWA1,34.0689,-107.62767,2.127
+La Silla Observatory,-29.25667,-70.73,2.347
+La Silla Observatory (ESO),-29.25667,-70.73,2.347
+Large Binocular Telescope,32.7016,-109.8719,2.902
+Las Campanas Observatory,-29.00333,-70.70167,2.282
+Lick Observatory,37.34333,-121.63667,1.29
+Long Wavelength Array 1,34.0689,-107.62767,2.127
+Low-Frequency Array,52.91512,6.86983,0.0494
+Lowell Discovery Telescope,34.74431,-111.42251,2.337
+Lowell Observatory,35.09667,-111.535,2.198
+Lowell Observatory - Anderson Mesa,35.09667,-111.535,2.198
+Lowell Observatory - Mars Hill,35.20288,-111.66478,2.195
+MDM Observatory,31.95,-111.61667,1.938
+MEERKAT,-30.71106,21.44389,1.0866
+MJO,-43.98574,170.46506,1.029
+MOA,-43.98574,170.46506,1.029
+MWA,-26.70332,116.67082,0.3778
+Manastash Ridge Observatory,46.9528,-120.7278,1.198
+Mars Hill,35.20288,-111.66478,2.195
+McDonald Observatory,30.67167,-104.02167,2.075
+Medicina,44.5205,11.6469,0.025
+Medicina Dish,44.5205,11.6469,0.025
+Medicina Radio Telescope,44.5205,11.6469,0.025
+MeerKAT,-30.71106,21.44389,1.0866
+Michigan-Dartmouth-MIT Observatory,31.95,-111.61667,1.938
+Mont Mégantic Observatory,45.45571,-71.1525,1.108
+Mount Graham International Observatory,32.7016,-109.8719,2.902
+Mount Wilson Observatory,34.22258,-118.06168,1.742
+Mt Graham,32.7016,-109.8719,2.902
+Mt John,-43.98574,170.46506,1.029
+Mt. Ekar 182 cm Telescope,45.84859,11.58113,1.413
+Mt. Stromlo Observatory,-35.32065,149.02433,0.767
+Multiple Mirror Telescope,31.68833,-110.885,2.608
+Murchison Widefield Array,-26.70332,116.67082,0.3778
+Murriyang,-32.99841,148.26351,0.4148
+NANCAY,47.3736,2.19748,0.1909
+NASA Infrared Telescope Facility,19.82622,-155.472,4.168
+NOV,8.79,-70.86667,3.61
+NOVA,48.37863,-92.83113,0.3676
+NOvA,48.37863,-92.83113,0.3676
+NPOI,35.09667,-111.535,2.198
+NST,34.2583,-116.9214,2.067
+Nancay,47.3736,2.19748,0.1909
+Nancay Radio Telescope,47.3736,2.19748,0.1909
+National Observatory of Venezuela,8.79,-70.86667,3.61
+Navy Precision Optical Interferometer,35.09667,-111.535,2.198
+Noto,36.87585,14.9889,0.03
+Noto Radio Telescope,36.87585,14.9889,0.03
+NuMI Off-axis νe Appearance,48.37863,-92.83113,0.3676
+OAJ,40.04202,-1.01608,1.956
+OAO,34.57708,133.59396,0.37
+OARMA,42.87594,-8.55545,0.24
+OCA,-24.59867,-70.20128,2.817
+OMM,45.45571,-71.1525,1.108
+ORCA,42.8,6.03333,-2.45
+OT,28.3,-16.50972,2.39
+Observatoire SIRENE,44.0,5.48694,1.1
+Observatoire de Haute Provence,43.93083,5.71333,0.65
+Observatoire du Mont Mégantic,45.45571,-71.1525,1.108
+Observatorio Astrofisico de Javalambre,40.04202,-1.01608,1.956
+"Observatorio Astronomico Nacional, San Pedro Martir",31.02917,-115.48694,2.83
+"Observatorio Astronomico Nacional, Tonantzintla",19.03278,-98.31389,0.0
+"Observatorio Astronomico Ramon Maria Aller, Santiago de Compostela",42.87594,-8.55545,0.24
+Observatorio Cerro Armazones,-24.59867,-70.20128,2.817
+Observatorio Ramon Maria Aller,42.87594,-8.55545,0.24
+Observatorio de Calar Alto,37.22361,-2.54611,2.168
+Observatorio del Teide,28.3,-16.50972,2.39
+"Observatorio del Teide, Tenerife",28.3,-16.50972,2.39
+Okayama Astrophysical Observatory,34.57708,133.59396,0.37
+Oscillation Research with Cosmics in the Abyss,42.8,6.03333,-2.45
+Otehiwai,-43.98574,170.46506,1.029
+Otehiwai Observatory,-43.98574,170.46506,1.029
+Owens Valley Radio Observatory,37.23339,-118.28341,1.1886
+PTO,35.09667,-111.535,2.198
+Palomar,33.356,-116.863,1.706
+Paranal Observatory,-24.62744,-70.40499,2.669
+Paranal Observatory (ESO),-24.62744,-70.40499,2.669
+Parkes,-32.99841,148.26351,0.4148
+Perkins,35.09667,-111.535,2.198
+Roque de los Muchachos,28.75833,-17.88,2.327
+"Roque de los Muchachos, La Palma",28.75833,-17.88,2.327
+Royal Observatory Greenwich,51.47781,-0.00148,0.046
+Rubin,-30.24463,-70.74942,2.6628
+Rubin AuxTel,-30.2448,-70.74772,2.647
+Rubin Observatory,-30.24463,-70.74942,2.6628
+SAAO,-32.37582,20.81081,1.798
+SALT,-32.37582,20.81081,1.798
+SNO+,46.475,-81.20111,-1.74
+SPO,32.7873,-105.8205,2.8
+SRT,39.49307,9.24515,0.6717
+Sac Peak,32.7873,-105.8205,2.8
+Sacramento Peak,32.7873,-105.8205,2.8
+Sacramento Peak Observatory,32.7873,-105.8205,2.8
+Sardinia Radio Telescope,39.49307,9.24515,0.6717
+Siding Spring Observatory,-31.27336,149.06119,1.149
+Southern African Large Telescope,-32.37582,20.81081,1.798
+Subaru,19.82556,-155.47611,4.139
+Subaru Telescope,19.82556,-155.47611,4.139
+Sudbury Neutrino Observatory +,46.475,-81.20111,-1.74
+Sunspot,32.7873,-105.8205,2.8
+Super-Kamiokande,36.42572,137.31031,0.37
+SuperK,36.42572,137.31031,0.37
+Superk,36.42572,137.31031,0.37
+Sutherland,-32.37582,20.81081,1.798
+TNO,18.59056,98.48667,2.457
+TUBITAK National Observatory,36.82417,30.33556,2.5
+TUG,36.82417,30.33556,2.5
+Thai National Observatory,18.59056,98.48667,2.457
+The Hale Telescope,33.356,-116.863,1.706
+UKIRT,19.82243,-155.47033,4.1985
+United Kingdom Infrared Telescope,19.82243,-155.47033,4.1985
+V1,43.63141,10.5045,0.0519
+VIRGO,43.63141,10.5045,0.0519
+Vainu Bappu Observatory,12.57666,78.8266,0.725
+Very Large Array,34.07875,-107.61828,2.124
+Virgo,43.63141,10.5045,0.0519
+Virgo Observatory,43.63141,10.5045,0.0519
+W. M. Keck Observatory,19.82833,-155.47833,4.16
+WIYN,31.95805,-111.60062,2.091
+WIYN 3.5 m,31.95805,-111.60062,2.091
+WIYN Observatory,31.95805,-111.60062,2.091
+Whipple,31.68094,-110.8775,2.32
+Whipple Observatory,31.68094,-110.8775,2.32
+Winer,31.66558,-110.60178,1.5157
+Winer Observatory,31.66558,-110.60178,1.5157
+Wise Observatory,30.59739,34.76218,0.875
+aao,-31.27704,149.06609,1.164
+alma,-23.029,-67.755,5.0
+ao,18.34417,-66.75278,0.497
+apo,32.78,-105.82,2.798
+arca,36.26667,16.1,-3.5
+arecibo,18.34417,-66.75278,0.497
+askap,-26.697,116.63142,0.361
+bbso,34.2583,-116.9214,2.067
+bmo,40.92167,-78.005,0.738
+cfht,19.82667,-155.47167,4.215
+chime,49.32071,-119.62368,0.5554
+ctio,-30.16528,-70.815,2.215
+dao,48.52167,-123.41667,0.229
+dct,34.74431,-111.42251,2.337
+dkist,20.7067,-156.2564,3.067
+drao,49.32102,-119.61898,0.5466
+effelsberg,50.52484,6.88362,0.4167
+ekar,45.84859,11.58113,1.413
+example_site,51.47781,-0.00148,0.046
+fast,25.65295,106.85667,1.1091
+flwo,31.68094,-110.8775,2.32
+gbt,38.43306,-79.83972,0.807
+gemini_north,19.8238,-155.46905,4.213
+gemini_south,-30.24074,-70.73668,2.75
+gemn,19.8238,-155.46905,4.213
+gems,-30.24074,-70.73668,2.75
+geo_600,52.24515,9.80719,0.1144
+gmrt,19.093,74.05656,0.497
+greenwich,51.47781,-0.00148,0.046
+haleakala,20.71552,-156.169,3.048
+halo,46.475,-81.20111,-1.74
+hcro,40.8175,-121.47333,0.986
+het,30.68139,-104.01472,2.026
+hyperK,36.35558,137.31364,0.514
+hyperk,36.35558,137.31364,0.514
+iao,32.77944,78.96417,4.5
+icecube,-90.0,0.0,0.85
+irtf,19.82622,-155.472,4.168
+jcmt,19.8228,-155.477,4.1247
+kagra,36.41186,137.30596,0.4142
+keck,19.82833,-155.47833,4.16
+km3net arca,36.26667,16.1,-3.5
+km3net orca,42.8,6.03333,-2.45
+kpno,31.96333,-111.6,2.12
+lapalma,28.75833,-17.88,2.327
+lasilla,-29.25667,-70.73,2.347
+lbt,32.7016,-109.8719,2.902
+lco,-29.00333,-70.70167,2.282
+ldt,34.74431,-111.42251,2.337
+lho_4k,46.45515,-119.40766,0.1426
+lick,37.34333,-121.63667,1.29
+llo_4k,30.56289,-90.77424,-0.0066
+lo-am,35.09667,-111.535,2.198
+lo-mh,35.20288,-111.66478,2.195
+lofar,52.91512,6.86983,0.0494
+lowell,35.09667,-111.535,2.198
+lwa1,34.0689,-107.62767,2.127
+mars_hill,35.20288,-111.66478,2.195
+mcdonald,30.67167,-104.02167,2.075
+mdm,31.95,-111.61667,1.938
+medicina,44.5205,11.6469,0.025
+meerkat,-30.71106,21.44389,1.0866
+mh,35.20288,-111.66478,2.195
+mma,37.23339,-118.28341,1.1886
+mmt,31.68833,-110.885,2.608
+mro,46.9528,-120.7278,1.198
+mso,-35.32065,149.02433,0.767
+mtbigelow,32.41667,-110.73167,2.51
+mwa,-26.70332,116.67082,0.3778
+mwo,34.22258,-118.06168,1.742
+nancay,47.3736,2.19748,0.1909
+noto,36.87585,14.9889,0.03
+nova,48.37863,-92.83113,0.3676
+oca,-24.59867,-70.20128,2.817
+ohp,43.93083,5.71333,0.65
+omm,45.45571,-71.1525,1.108
+orca,42.8,6.03333,-2.45
+ovro,37.23339,-118.28341,1.1886
+paranal,-24.62744,-70.40499,2.669
+parkes,-32.99841,148.26351,0.4148
+pto,35.09667,-111.535,2.198
+rubin,-30.24463,-70.74942,2.6628
+rubin_aux,-30.2448,-70.74772,2.647
+salt,-32.37582,20.81081,1.798
+sirene,44.0,5.48694,1.1
+sno+,46.475,-81.20111,-1.74
+spm,31.02917,-115.48694,2.83
+spo,32.7873,-105.8205,2.8
+srt,39.49307,9.24515,0.6717
+sso,-31.27336,149.06119,1.149
+superK,36.42572,137.31031,0.37
+superk,36.42572,137.31031,0.37
+teide,28.3,-16.50972,2.39
+tona,19.03278,-98.31389,0.0
+tug,36.82417,30.33556,2.5
+ukirt,19.82243,-155.47033,4.1985
+vbo,12.57666,78.8266,0.725
+virgo,43.63141,10.5045,0.0519
+vla,34.07875,-107.61828,2.124
+winer,31.66558,-110.60178,1.5157
+wise,30.59739,34.76218,0.875
+wiyn,31.95805,-111.60062,2.091

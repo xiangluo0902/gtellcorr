@@ -1,0 +1,182 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gtellcorr"
+dynamic = ["version"]
+description = "Clean the Earth's atmosphere out of your high-resolution spectra, with an LBLRTM telluric model for every exposure"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Xiang Luo" },
+    { name = "Dongtao Cao" },
+    { name = "Yue Xiang" },
+    { name = "Kun Wang" },
+    { name = "Shenghong Gu" },
+]
+maintainers = [{ name = "Xiang Luo" }]
+requires-python = ">=3.11"
+keywords = ["astronomy", "spectroscopy", "telluric correction", "LBLRTM"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+# Version ranges only; exact pins for reproducing results live in environment.yml.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "astropy>=6.1",
+    "platformdirs>=4.0",
+    "pandas>=2.1",
+    "pymsis>=0.10",
+    "requests>=2.31",
+    "emcee>=3.1",
+    "matplotlib>=3.8",  # figures are written by default (Pipeline(plot=True))
+]
+
+[project.optional-dependencies]
+# stellar templates (pySME); iSpec is an external installation (Settings.ispec_dir)
+pysme = ["pysme-astro>=1.0"]
+era5 = ["cdsapi>=0.7", "netCDF4>=1.6"]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff==0.16.8",  # formatter output must not drift; keep equal to .pre-commit-config.yaml
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/xiangluo0902/gtellcorr"
+Issues = "https://github.com/xiangluo0902/gtellcorr/issues"
+Changelog = "https://github.com/xiangluo0902/gtellcorr/blob/main/CHANGELOG.md"
+
+[project.scripts]
+gtellcorr = "gtellcorr.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "gtellcorr._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gtellcorr = ["py.typed"]
+"gtellcorr.data.observation" = ["instruments/*.toml", "sites/*.csv"]
+"gtellcorr.telluric.lblrtm" = ["*.json", "third_party_notices/*.txt"]
+"gtellcorr.telluric.resources" = ["contracts/*.json"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+markers = [
+    "lblrtm: needs a built LBLRTM resource bundle (skipped when absent)",
+    "network: needs internet access (skipped unless --run-network)",
+    "regression: compares with stored reference results (needs GTELLCORR_REGRESSION_DATA)",
+]
+filterwarnings = ["error"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+# Documentation code and test data files are never linted or auto-formatted.
+extend-exclude = [
+    "docs",
+    "tests/fixtures",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "NPY", "RUF"]
+# RUF001-003: Unicode symbols such as ×, µ and … in strings and comments are intended.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# Patch payloads are inserted verbatim into ported files; their lines are not reflowed.
+"tools/legacy/port_lblrtm.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gtellcorr"]
+
+# ---------------------------------------------------------------------------
+# mypy: strict, with per-module overrides for the modules not yet fully typed.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+# Code that needs an LBLRTM bundle or network access, which the CI runners lack;
+# it is tested with end-to-end runs instead.
+omit = [
+    "src/gtellcorr/telluric/lblrtm/*",
+    "src/gtellcorr/telluric/resources/_build.py",
+    "src/gtellcorr/telluric/resources/_freeze.py",
+    "src/gtellcorr/data/atmosphere/full_profile.py",
+    "src/gtellcorr/data/atmosphere/meteo.py",
+    "src/gtellcorr/data/atmosphere/rfm_reference.py",
+    "src/gtellcorr/data/atmosphere/space_weather.py",
+    "src/gtellcorr/data/atmosphere/retriever.py",
+    "src/gtellcorr/data/atmosphere/profile.py",
+    "src/gtellcorr/data/atmosphere/cycles.py",
+    "src/gtellcorr/data/atmosphere/merge.py",
+    "src/gtellcorr/data/atmosphere/secrets.py",
+    "src/gtellcorr/data/atmosphere/backends/*",
+    "src/gtellcorr/fitting/lsf.py",
+    "src/gtellcorr/fitting/continuum.py",
+    "src/gtellcorr/telluric/order_cache.py",
+    "src/gtellcorr/plotting/order_fit.py",
+    "src/gtellcorr/plotting/param_timeseries.py",
+    "src/gtellcorr/plotting/strong_mask.py",
+    "src/gtellcorr/plotting/telluric_pca.py",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+files = ["src/gtellcorr"]
+
+[[tool.mypy.overrides]]
+module = ["astropy.*", "scipy.*"]
+ignore_missing_imports = true
+
+# Not yet fully typed; the typed wrappers in gtellcorr.telluric.resources are checked.
+[[tool.mypy.overrides]]
+module = [
+    "gtellcorr.telluric.lblrtm.*",
+    "gtellcorr.telluric.resources._build",
+    "gtellcorr.telluric.resources._freeze",
+    "gtellcorr.data.atmosphere.full_profile",
+    "gtellcorr.data.atmosphere.meteo",
+    "gtellcorr.data.atmosphere.rfm_reference",
+    "gtellcorr.data.atmosphere.space_weather",
+    "gtellcorr.data.atmosphere.retriever",
+    "gtellcorr.data.atmosphere.profile",
+    "gtellcorr.data.atmosphere.cycles",
+    "gtellcorr.data.atmosphere.merge",
+    "gtellcorr.data.atmosphere.secrets",
+    "gtellcorr.data.atmosphere.backends.*",
+    "gtellcorr.fitting.lsf",
+    "gtellcorr.fitting.continuum",
+    "gtellcorr.telluric.order_cache",
+    "gtellcorr.plotting.order_fit",
+    "gtellcorr.plotting.param_timeseries",
+    "gtellcorr.plotting.strong_mask",
+    "gtellcorr.plotting.telluric_pca",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["pymsis.*", "cdsapi.*", "netCDF4.*", "pandas.*", "requests.*", "pysme.*", "emcee.*", "ispec.*", "ispec"]
+ignore_missing_imports = true

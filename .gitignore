@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+.ipynb_checkpoints/
+*.env
+.env
+
+# written by iSpec into the working directory
+ispec.log
+
+# run logs written by pySME / iSpec in the working directory
+*.log
+# local analysis workspaces (not part of the package)
+tests/pepsi_*/

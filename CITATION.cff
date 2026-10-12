@@ -1,0 +1,56 @@
+cff-version: 1.2.0
+message: "If you use gtellcorr, please cite the paper below and the software version you used."
+title: "gtellcorr"
+type: software
+version: 0.9.0
+date-released: 2026-10-13
+license: MIT
+repository-code: "https://github.com/xiangluo0902/gtellcorr"
+abstract: >-
+  Clean the Earth's atmosphere out of your high-resolution spectra. gtellcorr
+  rebuilds the atmosphere above your telescope for every exposure, models its
+  absorption with LBLRTM, and fits it alongside your star's own lines. The
+  molecular columns, the instrumental resolution and the continuum are fitted
+  with either a stellar-line mask or a stellar template, and the optical depths
+  are cached so that fitting stays fast.
+keywords:
+  - astronomy
+  - spectroscopy
+  - telluric correction
+  - LBLRTM
+  - high-resolution spectroscopy
+authors:
+  - family-names: Luo
+    given-names: Xiang
+    orcid: "https://orcid.org/0009-0009-7220-3433"
+    affiliation: "School of Physics and Astronomy, China West Normal University"
+  - family-names: Cao
+    given-names: Dongtao
+    affiliation: "Yunnan Observatories, Chinese Academy of Sciences"
+  - family-names: Xiang
+    given-names: Yue
+    affiliation: "Yunnan Observatories, Chinese Academy of Sciences"
+  - family-names: Wang
+    given-names: Kun
+    affiliation: "School of Physics and Astronomy, China West Normal University"
+  - family-names: Gu
+    given-names: Shenghong
+    affiliation: "Yunnan Observatories, Chinese Academy of Sciences"
+preferred-citation:
+  type: article
+  title: "gtellcorr: A Telluric Absorption Correction Workflow for Optical High-Resolution Spectra"
+  journal: "Universe"
+  status: submitted
+  year: 2026
+  authors:
+    - family-names: Luo
+      given-names: Xiang
+      orcid: "https://orcid.org/0009-0009-7220-3433"
+    - family-names: Cao
+      given-names: Dongtao
+    - family-names: Xiang
+      given-names: Yue
+    - family-names: Wang
+      given-names: Kun
+    - family-names: Gu
+      given-names: Shenghong

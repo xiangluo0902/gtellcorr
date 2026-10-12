@@ -1,0 +1,179 @@
+{
+  "components": {
+    "fixed": {
+      "ch4": 1.0702083176789354,
+      "co": 1.1046306115235067,
+      "co2": 1.1473541383989145,
+      "h2o": 0.0,
+      "hno3": 1.1451792859970749,
+      "n2o": 1.065615141955836,
+      "nh3": 1.0,
+      "no": 0.7247904696642242,
+      "no2": 1.470570934459595,
+      "o2": 0.9905660377358491,
+      "o3": 0.9521949313931344,
+      "so2": 1.0
+    },
+    "h2o": {
+      "ch4": 0.0,
+      "co": 0.0,
+      "co2": 0.0,
+      "h2o": 1.0,
+      "hno3": 0.0,
+      "n2o": 0.0,
+      "nh3": 0.0,
+      "no": 0.0,
+      "no2": 0.0,
+      "o2": 0.0,
+      "o3": 0.0,
+      "so2": 0.0
+    }
+  },
+  "continuum_mode": "none",
+  "display_wavelength_range_air_nm": [
+    817.000154527,
+    820.499935307
+  ],
+  "dvout_cm1": 0.002,
+  "expected_tau_cache_identity": {
+    "continuum_mode": "none",
+    "first_run_defines_grid": true,
+    "fit": {
+      "molecules": [
+        "h2o"
+      ],
+      "reference_columns": {
+        "h2o": 1.0
+      }
+    },
+    "fixed_columns": {
+      "ch4": 1.937,
+      "co": 0.14,
+      "co2": 422.8,
+      "hno3": 0.00056,
+      "n2o": 0.3378,
+      "nh3": 0.0001,
+      "no": 1.1e-19,
+      "no2": 0.0001,
+      "o2": 210000.0,
+      "o3": 0.039,
+      "so2": 0.0001
+    },
+    "fixed_reference_columns": {
+      "ch4": 1.937,
+      "co": 0.14,
+      "co2": 422.8,
+      "hno3": 0.00056,
+      "n2o": 0.3378,
+      "nh3": 0.0001,
+      "no": 1.1e-19,
+      "no2": 0.0001,
+      "o2": 210000.0,
+      "o3": 0.039,
+      "so2": 0.0001
+    },
+    "line_of_sight": {
+      "effective_airmass": 1.143,
+      "observer_altitude_km": 2.648,
+      "path_end_altitude_km": 120.0,
+      "reference_latitude_deg": -24.6276
+    },
+    "optical_depth_output": {
+      "grid_spacing_cm1": 0.002,
+      "iemit": 0,
+      "iod": 1,
+      "policy": "binary_tape12_iemit0_raw_finite_no_clipping_v1",
+      "raw_values_modified": false,
+      "spectral_output": "optical_depth"
+    },
+    "optical_depth_value_policy": {
+      "clipping": "none",
+      "finite_negative": "retain_unchanged",
+      "logarithm": "none",
+      "nonfinite": "reject_complete_build",
+      "transmission_floor": "none"
+    },
+    "profile": {
+      "level_count": 121,
+      "sha256": "642d78d23b47be4c1f2ce4daa568da18040547b7af884a9d6927c4551108f9af"
+    },
+    "public_column_scaling": {
+      "denominators": {
+        "ch4": 1.809928,
+        "co": 0.1267392,
+        "co2": 368.5,
+        "h2o": 1.0,
+        "hno3": 0.0004890064,
+        "n2o": 0.317,
+        "nh3": 0.0001,
+        "no": 1.51768e-19,
+        "no2": 6.800079999999999e-05,
+        "o2": 212000.0,
+        "o3": 0.040958,
+        "so2": 0.0001
+      },
+      "policy": "h2o_direct_profile_scale; nonwater_target_ppmv_divided_by_supplied_profile_ppmv_at_observer_altitude"
+    },
+    "regrid_extrapolation": "forbidden",
+    "regrid_policy": "exact_iemit0_iod1_dvout_grid_required_v1",
+    "resource": {
+      "lblrtm_precision": "double",
+      "manifest_fingerprint": "553d7a76ab648e8876a3bc7e7261d93a56fab0715aca25a02465395a919507ea",
+      "tape12_abi": {
+        "byte_order": "little",
+        "integer_bytes": 8,
+        "real_bytes": 8,
+        "record_marker_bytes": 4
+      }
+    },
+    "schema": "gtellcorr_tau_cache_v3",
+    "spectral_window_cm1": {
+      "highfreq": 12547.051442910915,
+      "lowfreq": 11897.67995240928
+    },
+    "wavelength": {
+      "conversion_formula": "espresso",
+      "input_medium": "vacuum",
+      "output_medium": "air",
+      "wave_margin_nm": 0.0
+    }
+  },
+  "instrumental_convolution": false,
+  "interpolation": "none",
+  "iod": 1,
+  "line_of_sight": {
+    "airmass": 1.143,
+    "observer_altitude_km": 2.648,
+    "path_end_altitude_km": 120.0,
+    "reference_latitude_deg": -24.6276
+  },
+  "observation": {
+    "airmass": 1.143,
+    "instrument": "ESPRESSO",
+    "label": "Paranal",
+    "latitude_deg": -24.6276,
+    "longitude_deg": -70.4051,
+    "midpoint_utc": "2022-07-02T23:56:32.399Z",
+    "observer_altitude_km": 2.648,
+    "path_end_altitude_km": 120.0
+  },
+  "profile_copy": "/data/user/TOI-2076_data/mytelluric/background/code/gtellcorr/tests/lbl/iemit_reference_state_parity/data/reference_profile.npz",
+  "profile_copy_sha256": "efcdd5f4fdeb07840ecb896dcdc99d2b10da00c95a87c6e37c4626cea0620b15",
+  "profile_level_count": 121,
+  "profile_source": "/data/user/TOI-2076_data/mytelluric/background/code/gtellcorr/tests/figures_paper/step1_forward_model/data/taucache_validation_input_profile.npz",
+  "profile_source_sha256": "d1fa218153c7be77c9cb40c0322a014f01044d89243dee8e0c6c4ae4e963a343",
+  "provenance_source": "/data/user/TOI-2076_data/mytelluric/background/code/gtellcorr/tests/figures_paper/step1_forward_model/data/taucache_validation_provenance.json",
+  "provenance_source_sha256": "744abfde8c8ddcfed6fd1e028debd912cbf522e9c75fb7033a6af76e2e1c46af",
+  "raw_calculation_wavenumber_range_cm1": [
+    11897.67995240928,
+    12547.051442910915
+  ],
+  "rendered_wavenumber_range_cm1": [
+    11897.679,
+    12547.052
+  ],
+  "resampling": "none",
+  "source_tau_cache": "/data/user/TOI-2076_data/mytelluric/background/code/gtellcorr/tests/figures_paper/step1_forward_model/data/tau_cache/95a0cae652380d049285835a96251b6ac1ca91077b09b0fde02297fabf414ce6.npz",
+  "source_tau_cache_sha256": "a6ccbac17337981aa51ceb17e743adcfd6993a5fd31405eaba99020bf2c536bf",
+  "wavelength_conversion_formula": "espresso"
+}

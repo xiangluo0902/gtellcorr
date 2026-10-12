@@ -1,0 +1,344 @@
+{
+  "$schema": "lblrtm_resource_manifest.schema.json",
+  "build_contract": {
+    "target_platform": "macOS",
+    "target_architecture": "arm64",
+    "source_tree_policy": "extract into a new staging directory, remove archive-provided objects and executables, then compile by explicit target",
+    "lnfl_precision": "single",
+    "lblrtm_precision": "double",
+    "lnfl_make_target": "osxGNUsgl",
+    "lblrtm_make_target": "osxGNUdbl",
+    "lnfl_product_basename": "lnfl_v3.2_OS_X_gnu_sgl",
+    "lblrtm_product_basename": "lblrtm_v12.17_OS_X_gnu_dbl",
+    "tape12_abi": {
+      "byte_order": "little",
+      "integer_bytes": 8,
+      "real_bytes": 8,
+      "record_marker_bytes": 4
+    },
+    "measurement_status": "toolchain versions, binary linkage, clean-source status, and portability were not established by the freeze tool",
+    "runtime_distribution_status": "host-bound",
+    "runtime_distribution_note": "classification was measured by the hash-pinned build recipe; the freeze tool did not independently rerun the portability audit"
+  },
+  "citations": [
+    {
+      "title": "LBLRTM v12.17",
+      "url": "https://github.com/AER-RC/LBLRTM/releases/tag/v12.17"
+    },
+    {
+      "title": "LNFL v3.2",
+      "url": "https://github.com/AER-RC/LNFL/releases/tag/v3.2"
+    },
+    {
+      "doi": "10.1016/j.jqsrt.2021.107949",
+      "title": "HITRAN2020 molecular spectroscopic database"
+    },
+    {
+      "doi": "10.1016/j.jqsrt.2004.05.058",
+      "title": "Atmospheric radiative transfer modeling: a summary of the AER codes"
+    },
+    {
+      "doi": "10.1098/rsta.2011.0295",
+      "title": "Development and recent evaluation of the MT_CKD model of continuum absorption"
+    }
+  ],
+  "compatibility": {
+    "lblrtm_continuum_pairing": "LBLRTM v12.17 embeds MT_CKD 4.3 code and opens the separately hash-pinned absco-ref_wv-mt-ckd.nc H2O coefficient data from its execution working directory",
+    "pairing_status": "validated by a clean source build on the build host; not the line-file pairing recommended upstream",
+    "project_build_validated_line_file_candidate": "AER v3.9",
+    "runtime_profile_molecule_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "upstream_recommended_line_file_for_lblrtm_12_17": "AER v3.8.1",
+    "wrapper_name_count": 39
+  },
+  "created_utc": "2026-09-23T06:19:08Z",
+  "licenses": {
+    "aer_lblrtm_2020": {
+      "notice_file": {
+        "license_ref": "aer_lblrtm_2020",
+        "relative_path": "third_party_notices/AER_LBLRTM_LICENSE.txt",
+        "role": "LBLRTM v12.17 redistribution wording reproduced verbatim; formatting normalized and source note added",
+        "sha256": "faf138efa822581cbf51a68aa91888a8fb66aa6370103ba5f83d4e76fd2f4c8f",
+        "size_bytes": 851
+      },
+      "redistribution": "scientific and research use only; retain notice and acknowledge AER"
+    },
+    "aer_line_file_2025": {
+      "notice_file": {
+        "license_ref": "aer_line_file_2025",
+        "relative_path": "third_party_notices/AER_LINE_FILE_LICENSE.txt",
+        "role": "AER v3.9 opening notice plus scope warning for embedded molecule-specific notices",
+        "sha256": "fcf123366a418550a687d64b33ac32992701f8476c208bf3a7cdaf37781c0f05",
+        "size_bytes": 1284
+      },
+      "redistribution": "retain the top-level and all embedded molecule-specific notices; rights vary by source segment and must be checked before redistribution"
+    },
+    "aer_lnfl_2015": {
+      "notice_file": {
+        "license_ref": "aer_lnfl_2015",
+        "relative_path": "third_party_notices/AER_LNFL_LICENSE.txt",
+        "role": "LNFL v3.2 redistribution wording reproduced verbatim; formatting normalized and source note added",
+        "sha256": "7d81cd7730705a477a6ed07868745ce89045ba0c068c1a71178b29eaafaf851a",
+        "size_bytes": 821
+      },
+      "redistribution": "scientific and research use only; retain notice and acknowledge AER"
+    },
+    "aer_mt_ckd_2022": {
+      "notice_file": {
+        "license_ref": "aer_mt_ckd_2022",
+        "relative_path": "third_party_notices/AER_MT_CKD_LICENSE.txt",
+        "role": "MT_CKD v4.3 NetCDF Copyright attribute wording; formatting normalized and source note added",
+        "sha256": "67386f619cf385bfcb887b156812c9329438e942f9f746daee1275ec98212425",
+        "size_bytes": 999
+      },
+      "redistribution": "scientific and research use only; retain the data copyright notice and acknowledge AER"
+    },
+    "gtellcorr_project": {
+      "statement": "project license applies only to original gtellcorr material, never to AER resources"
+    }
+  },
+  "products": {
+    "build_recipe": {
+      "license_ref": "gtellcorr_project",
+      "relative_path": "provenance/build_recipe.json",
+      "role": "machine-readable offline build inputs, tool identities, and Mach-O linkage audit",
+      "sha256": "30db9fa55ed9eef0138210957141bb2890c4628e493bf698987cecdc642c2acd",
+      "size_bytes": 5925
+    },
+    "lblrtm_addlibs_template": {
+      "license_ref": "gtellcorr_project",
+      "relative_path": "provenance/LBLRTM_addlibs.inc.template",
+      "role": "parameterized LBLRTM NetCDF link configuration used by the offline builder",
+      "sha256": "f93952e36795238a6cef883f9164d222322b8ef7a0e519c6894629fb13757c54",
+      "size_bytes": 261
+    },
+    "lblrtm_executable": {
+      "executable_format": "Mach-O arm64",
+      "license_ref": "aer_lblrtm_2020",
+      "relative_path": "bin/lblrtm_v12.17_OS_X_gnu_dbl",
+      "role": "gtellcorr LBLRTM v12.17 runtime executable",
+      "sha256": "c5d49e4d72d80203ea8a954122fd10a45debe0d71666481c479c99511f66e369",
+      "size_bytes": 14437224
+    },
+    "lnfl_executable": {
+      "executable_format": "Mach-O arm64",
+      "license_ref": "aer_lnfl_2015",
+      "relative_path": "bin/lnfl_v3.2_OS_X_gnu_sgl",
+      "role": "LNFL v3.2 executable used to compile TAPE3",
+      "sha256": "93b54f97bcf62d367b9a7190a16013e61bfb25d81d6f185d09de57b8131eb06d",
+      "size_bytes": 701784
+    },
+    "lnfl_tape5": {
+      "license_ref": "gtellcorr_project",
+      "relative_path": "provenance/LNFL_TAPE5",
+      "role": "LNFL control input with explicit 47-slot selection",
+      "sha256": "9a08cc09d32163c2071da53f15682710c3160111442a99b3265add51bf218d0c",
+      "size_bytes": 131
+    },
+    "lnfl_tape6": {
+      "license_ref": "aer_lnfl_2015",
+      "relative_path": "provenance/LNFL_TAPE6",
+      "role": "LNFL build report and per-molecule line statistics",
+      "sha256": "0e5fd7e858455c375b94768845e3a484d177fcf78a240f8dc1743fca2a746670",
+      "size_bytes": 7334
+    },
+    "mt_ckd_h2o_continuum_coefficients": {
+      "license_ref": "aer_mt_ckd_2022",
+      "relative_path": "data/absco-ref_wv-mt-ckd.nc",
+      "role": "MT_CKD v4.3 H2O self/foreign continuum coefficients opened by LBLRTM v12.17 from the execution working directory",
+      "runtime_basename": "absco-ref_wv-mt-ckd.nc",
+      "sha256": "69944eb8b045c268e2daeb2cddf536b99f9e9efe7e91c425067b46a5b287ddb3",
+      "size_bytes": 83576,
+      "source_archive_member": "lblrtm/data/absco-ref_wv-mt-ckd.nc",
+      "upstream_commit": "a85ac73447c1e62401a57a34bbcb040683345dca",
+      "version": "4.3"
+    },
+    "tape3": {
+      "license_ref": "aer_line_file_2025",
+      "relative_path": "data/TAPE3",
+      "role": "LNFL-compiled binary line database consumed by LBLRTM",
+      "scientific_sha256": "48c671f894179518775e4e345c0ba6b77ef0b5a626e87fb2f7ff436db49850f4",
+      "semantic_sha256": "a025373fc73fbe5fa8db970b05b16bbba8a4eb91b7998afc454df74ce2eb26da",
+      "sha256": "59aa31f9b408578c353b14e6b13ecfbb4ea7da876218fa4ddc620716176f7e34",
+      "size_bytes": 395610896
+    }
+  },
+  "resource_set_id": "lblrtm-12.17_mt-ckd-4.3_lnfl-3.2_aer-line-file-3.9_macos-arm64_gnu-double",
+  "schema_version": 2,
+  "scientific_contract": {
+    "actual_line_bounds_cm1": [
+      2000.0008544921875,
+      33333.1640625
+    ],
+    "line_basis": "AER line file v3.9, derived principally from HITRAN2020",
+    "line_count_by_molecule_id": {
+      "1": 399519,
+      "2": 373624,
+      "3": 209520,
+      "4": 97620,
+      "5": 3396,
+      "6": 299603,
+      "7": 2549,
+      "8": 200250,
+      "9": 117334,
+      "10": 74774,
+      "11": 35491,
+      "12": 0,
+      "13": 44243,
+      "14": 18046,
+      "15": 42341,
+      "16": 6440,
+      "17": 3084,
+      "18": 0,
+      "19": 23334,
+      "20": 31796,
+      "21": 5020,
+      "22": 1110,
+      "23": 83963,
+      "24": 68832,
+      "25": 0,
+      "26": 27491,
+      "27": 9275,
+      "28": 65608,
+      "29": 25,
+      "30": 0,
+      "31": 45704,
+      "32": 0,
+      "33": 3466,
+      "34": 0,
+      "35": 0,
+      "36": 928,
+      "37": 0,
+      "38": 7162,
+      "39": 0,
+      "40": 0,
+      "41": 0,
+      "42": 0,
+      "43": 0,
+      "44": 0,
+      "45": 13543,
+      "46": 198,
+      "47": 1527
+    },
+    "molecule_selection_mask": "11111111111111111111111111111111111111111111111",
+    "nominal_wavelength_coverage_nm": [
+      300.0,
+      5000.0
+    ],
+    "nonzero_molecule_count_in_range": 33,
+    "requested_bounds_cm1": [
+      2000.0,
+      33333.333
+    ],
+    "runtime_profile_count": 12,
+    "selected_molecule_count": 47,
+    "selected_molecule_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47
+    ],
+    "selection_field_width": 47,
+    "tape3_linmol": 47,
+    "total_line_count": 2316816
+  },
+  "sources": {
+    "aer_line_file": {
+      "license_ref": "aer_line_file_2025",
+      "notes": "Header carries the AER restriction and HITRAN2020 citation.",
+      "relative_path": "data/aer_v_3.9",
+      "role": "LNFL TAPE1 source line database",
+      "sha256": "08c990768fc3b69dc65538325eadd4df633106a0e6456cba3da072cf4357acb8",
+      "size_bytes": 795553321,
+      "version": "3.9"
+    },
+    "aer_line_file_archive": {
+      "license_ref": "aer_line_file_2025",
+      "notes": "The archive is not bundled in the Python wheel.",
+      "relative_path": "sources/aer_v_3.9.tgz",
+      "role": "hash-pinned project-preserved AER v3.9 line-file archive",
+      "sha256": "3a55d5deb9430894ce61e1a23475ad1ed7ef01f0a5c527ee6f08d9e5676a0e4e",
+      "size_bytes": 405878572,
+      "version": "3.9"
+    },
+    "lblrtm_source_archive": {
+      "license_ref": "aer_lblrtm_2020",
+      "relative_path": "sources/aerlbl_v12.17.tar",
+      "role": "hash-pinned project-preserved LBLRTM v12.17 source snapshot",
+      "sha256": "f419bb700d4a42bc809c647672058e1a791fff62f86cf778d3ed642750c1c16a",
+      "size_bytes": 122335744,
+      "upstream_commit": "a85ac73447c1e62401a57a34bbcb040683345dca",
+      "version": "12.17"
+    },
+    "lnfl_source_archive": {
+      "license_ref": "aer_lnfl_2015",
+      "relative_path": "sources/aerlnfl_v3.2.tar",
+      "role": "hash-pinned project-preserved LNFL v3.2 source snapshot",
+      "sha256": "6e11749cc5eee2babb4ab07ee791b0217fad44c2d92973912c750663b7f8ad02",
+      "size_bytes": 2209280,
+      "upstream_commit": "eeafc294f41061c72224d26953498b5e8707bf1e",
+      "version": "3.2"
+    }
+  },
+  "status": "candidate",
+  "validation": {
+    "bundle_internal_consistency": "passed",
+    "clean_source_build": "not established by freeze tool",
+    "runtime_linkage_portability": "not established by freeze tool"
+  }
+}
