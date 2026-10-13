@@ -96,7 +96,7 @@ def get_meteo(
         Persist the profile via ``save_profile`` (default True).
     out_dir, basename : str | None
         Override the output directory / filename stem (defaults:
-        ``<atmosphere_cache>/<source>/`` and the canonical ``..._raw`` stem).
+        ``<atmosphere_cache>/<source>/`` and the standard ``..._raw`` stem).
     verbose : bool
         Log whether the lower profile was retrieved, reused or read at INFO
         (otherwise at DEBUG).

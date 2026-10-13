@@ -1,8 +1,8 @@
-"""Execute one isolated, auditable LBLRTM v12.17 direct-RT run.
+"""Run LBLRTM v12.17 once (direct radiative transfer) in its own working directory.
 
-The runner is intentionally limited to process isolation and byte-level
-provenance.  It does not parse TAPE12, construct a wavelength grid or clip a
-transmission spectrum.
+The runner only isolates the process and records the exact input and output files.
+It does not parse TAPE12, construct a wavelength grid or clip a transmission
+spectrum.
 
 Execution-critical resources are accepted only from a
 ``validate_lblrtm_resource_bundle`` result.  Each resource is opened without
@@ -95,7 +95,7 @@ _O_NONBLOCK: Final[int] = getattr(os, "O_NONBLOCK", 0)
 
 @dataclass(frozen=True, slots=True)
 class _RuntimeResourceIdentity:
-    """Frozen evidence and staging policy for one runtime resource."""
+    """Recorded size and checksum of one bundle file, and how it is copied for a run."""
 
     logical_name: str
     staged_filename: str
@@ -106,7 +106,7 @@ class _RuntimeResourceIdentity:
 
 @dataclass(frozen=True, slots=True)
 class _StagedRuntimeFile:
-    """Identity of one verified private-workspace resource snapshot."""
+    """Size, checksum and file status of one bundle file copied into a working directory."""
 
     contract: _RuntimeResourceIdentity
     device: int
@@ -146,7 +146,7 @@ def execute_lblrtm(
     keep_work_directory: bool = False,
     verbose: bool = False,
 ) -> LblrtmRunResult:
-    """Run LBLRTM once in a fresh workspace and return raw audited outputs.
+    """Run LBLRTM once in a fresh working directory and return its raw, checked outputs.
 
     Parameters
     ----------
@@ -164,7 +164,7 @@ def execute_lblrtm(
         Positive finite execution timeout.  ``None`` selects the project
         default; it never means an unlimited run.
     keep_work_directory
-        Preserve the unique workspace for audit/debugging when true.
+        Keep the working directory for inspection or debugging when true.
     verbose
         Log the workspace and the run time at INFO (otherwise at DEBUG); full
         diagnostics remain in the returned result or raised exception.
@@ -184,7 +184,7 @@ def execute_lblrtm(
     validated_resources = _require_validated_resources(resources)
     resource_identities = _runtime_resource_identities_from_evidence(validated_resources)
     resource_fingerprint = validated_resources.manifest_fingerprint
-    if resource_fingerprint is None:  # pragma: no cover - token invariant
+    if resource_fingerprint is None:  # pragma: no cover - cannot happen after the check
         raise LblrtmResourceIntegrityError(
             "internal error: the checked LBLRTM bundle has no manifest checksum"
         )
@@ -238,7 +238,7 @@ def execute_lblrtm(
                 f"{message}\n{_format_bounded_diagnostics(diagnostics)}"
             )
             execution_cause = run_failure
-        elif completed_process is None:  # pragma: no cover - control invariant
+        elif completed_process is None:  # pragma: no cover - cannot happen
             raise AssertionError("LBLRTM process result was not recorded")
         elif diagnostics.stdout_problem is not None:
             if diagnostics.stdout_problem.startswith(f"{_STDOUT_FILENAME} exceeds "):
@@ -290,7 +290,7 @@ def execute_lblrtm(
                 _format_bounded_diagnostics(diagnostics),
             )
             raise integrity_failure
-        if completed_process is None:  # pragma: no cover - control invariant
+        if completed_process is None:  # pragma: no cover - cannot happen
             raise AssertionError("LBLRTM process result was not recorded")
 
         try:
@@ -332,7 +332,7 @@ def execute_lblrtm(
 
 
 def _add_exception_note(exception: BaseException, note: str) -> None:
-    """Attach secondary evidence on both Python 3.10 and Python 3.11+."""
+    """Attach a secondary error on both Python 3.10 and Python 3.11+."""
 
     add_note = getattr(exception, "add_note", None)
     if callable(add_note):
@@ -438,10 +438,10 @@ def _require_validated_resources(
 def _runtime_resource_identities_from_evidence(
     resources: ResolvedLblrtmResourceFiles,
 ) -> tuple[_RuntimeResourceIdentity, ...]:
-    """Snapshot execution-critical size/SHA evidence from validator v2."""
+    """Sizes and SHA-256 of the files LBLRTM needs, as recorded by the bundle check."""
 
     evidence = resources.validation_evidence
-    if evidence is None:  # pragma: no cover - require_fully_validated invariant
+    if evidence is None:  # pragma: no cover - set by require_fully_validated
         raise LblrtmResourceIntegrityError(
             "internal error: the LBLRTM bundle check result is missing"
         )
@@ -465,7 +465,7 @@ def _runtime_resource_identities_from_evidence(
         try:
             size_text = evidence[size_key]
             digest = evidence[digest_key]
-        except KeyError as exc:  # pragma: no cover - validator invariant
+        except KeyError as exc:  # pragma: no cover - the bundle check records every key
             raise LblrtmResourceIntegrityError(
                 f"internal error: the LBLRTM bundle check did not record {exc.args[0]!r}"
             ) from exc
@@ -523,7 +523,7 @@ def _isolated_lblrtm_work_directory(
         else:  # pragma: no cover - cryptographic collision guard
             raise LblrtmExecutionError("cannot allocate a unique LBLRTM workspace")
 
-        if workspace_name is None:  # pragma: no cover - loop invariant
+        if workspace_name is None:  # pragma: no cover - cannot happen
             raise AssertionError("workspace name was not allocated")
         workspace_fd = os.open(
             workspace_name,
@@ -585,7 +585,7 @@ def _isolated_lblrtm_work_directory(
             raise
         raise failure from setup_exception
 
-    if workspace is None:  # pragma: no cover - setup invariant
+    if workspace is None:  # pragma: no cover - cannot happen
         raise AssertionError("LBLRTM workspace was not constructed")
     try:
         yield workspace
@@ -597,7 +597,7 @@ def _isolated_lblrtm_work_directory(
         if not workspace.keep:
             try:
                 _securely_remove_lblrtm_work_directory(workspace)
-            except BaseException as exc:  # preserve cleanup evidence
+            except BaseException as exc:  # keep the cleanup error
                 cleanup_failure = exc
         if workspace_fd is not None:
             with suppress(OSError):
@@ -618,7 +618,7 @@ def _isolated_lblrtm_work_directory(
 
 
 def _normalize_work_root(work_root: Path | None) -> Path:
-    """Return an existing canonical directory while rejecting final symlinks."""
+    """Return an existing directory as a resolved path, rejecting a symlink at the end."""
 
     candidate = Path(tempfile.gettempdir()) if work_root is None else work_root
     try:
@@ -637,7 +637,7 @@ def _normalize_work_root(work_root: Path | None) -> Path:
 
 
 def _require_descriptor_safety_support() -> None:
-    """Fail closed on platforms lacking required descriptor safety flags."""
+    """Raise on platforms without the file-descriptor flags needed for safe copies."""
 
     if _O_DIRECTORY == 0 or _O_NOFOLLOW == 0:
         raise LblrtmExecutionError(
@@ -847,7 +847,7 @@ def _validate_regular_source_status(
     *,
     identity: _RuntimeResourceIdentity,
 ) -> None:
-    """Validate the source file identity before copying any bytes."""
+    """Check the source file's type and size before copying any bytes."""
 
     if not stat.S_ISREG(source_status.st_mode):
         raise LblrtmResourceIntegrityError(f"{identity.logical_name} is no longer a regular file")
@@ -877,7 +877,7 @@ def _validate_staged_destination_status(
     *,
     identity: _RuntimeResourceIdentity,
 ) -> None:
-    """Require exact type, link count, mode, and evidence size."""
+    """Require the exact file type, link count, permissions and recorded size."""
 
     if not stat.S_ISREG(destination_status.st_mode):
         raise LblrtmResourceIntegrityError(
@@ -916,7 +916,7 @@ def _hash_open_file_descriptor(
     *,
     maximum_bytes: int,
 ) -> str:
-    """Hash one open regular-file snapshot without reopening its path."""
+    """Hash one open regular file without reopening its path."""
 
     os.lseek(file_descriptor, 0, os.SEEK_SET)
     digest = sha256()
@@ -1252,7 +1252,7 @@ def _read_bounded_workspace_file(
     allow_empty: bool,
     artifact_name: str,
 ) -> bytes:
-    """Snapshot one no-follow regular workspace file through the same fd."""
+    """Read one regular working file (no symlinks) through the same descriptor."""
 
     file_descriptor: int | None = None
     try:
@@ -1285,7 +1285,7 @@ def _read_bounded_workspace_file(
     except FileNotFoundError as exc:
         raise LblrtmOutputError(f"{artifact_name} is missing") from exc
     except (MemoryError, OSError) as exc:
-        raise LblrtmOutputError(f"cannot snapshot {artifact_name}: {exc}") from exc
+        raise LblrtmOutputError(f"cannot read {artifact_name}: {exc}") from exc
     finally:
         if file_descriptor is not None:
             with suppress(OSError):
@@ -1320,7 +1320,7 @@ def _read_open_file_bytes(
     try:
         return b"".join(chunks)
     except MemoryError as exc:
-        raise LblrtmOutputError("cannot allocate a bounded workspace-file snapshot") from exc
+        raise LblrtmOutputError("cannot allocate memory to read an LBLRTM working file") from exc
 
 
 def _validate_tape6_completion(tape6_bytes: bytes) -> None:
@@ -1368,7 +1368,7 @@ def _validate_tape6_completion(tape6_bytes: bytes) -> None:
 def _read_tape12_output_bytes(
     workspace: _IsolatedWorkspace,
 ) -> bytes:
-    """Return raw, bounded TAPE12 bytes without parsing or numerical policy."""
+    """Return the raw TAPE12 bytes (size-limited), without parsing them."""
 
     return _read_bounded_workspace_file(
         workspace,
@@ -1426,7 +1426,7 @@ def _verify_staged_inputs_after_execution(
 def _format_bounded_diagnostics(
     diagnostics: _LblrtmDiagnostics,
 ) -> str:
-    """Format bounded exception evidence without generic fatal-word parsing."""
+    """Format the start of an error message without searching it for fatal words."""
 
     sections = (
         ("stdout", diagnostics.stdout),

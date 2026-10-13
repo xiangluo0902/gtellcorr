@@ -48,11 +48,11 @@ def atmosphere_context(
 ) -> _context.AtmosphereContext:
     """The context the atmosphere modules read for one call.
 
-    ``celestrak`` defaults to the recorded snapshot in ``<resource_root>/atmosphere``.
-    A missing snapshot is an error if ``need_celestrak`` (default: only when
+    ``celestrak`` defaults to the recorded table in ``<resource_root>/atmosphere``.
+    A missing table is an error if ``need_celestrak`` (default: only when
     ``config.upper_source == "msis00"``).
     """
-    from gtellcorr.telluric.resources import load_contract
+    from gtellcorr.telluric.resources import load_setup
 
     cfg = config or AtmosphereConfig()
     if cfg.lower_backend == "manual":
@@ -61,7 +61,7 @@ def atmosphere_context(
             raise ConfigError(f"atmosphere.manual_profile_file not found: {manual}")
     s = settings or Settings.load()
     folder = s.resource_root / "atmosphere"
-    mipas = load_contract()["atmosphere_references"]["rfm_mipas_midlatitude_night"]
+    mipas = load_setup()["atmosphere_references"]["rfm_mipas_midlatitude_night"]
     if celestrak is None:
         try:
             celestrak = latest_celestrak(folder)
@@ -116,7 +116,7 @@ def get_meteo(
 ) -> Any:
     """The lower-atmosphere profile (reanalysis) for one epoch and site.
 
-    No space-weather snapshot is needed: it only serves the upper atmosphere.
+    No space-weather table is needed: it only serves the upper atmosphere.
     """
     from gtellcorr.data.atmosphere import meteo
 
@@ -206,11 +206,11 @@ def full_profile_for_exposure(
 def reference_atmosphere(
     config: AtmosphereConfig | None = None, settings: Settings | None = None
 ) -> Mapping[str, Any]:
-    """The hash-pinned RFM MIPAS reference atmosphere, which supplies the
+    """The RFM MIPAS reference atmosphere (checked against its SHA-256), which supplies the
     eleven fixed molecules."""
     from gtellcorr.data.atmosphere import full_profile
 
-    # only the MIPAS file is read: no CelesTrak snapshot needed
+    # only the MIPAS file is read: no CelesTrak table needed
     ctx = atmosphere_context(config, settings, need_celestrak=False)
     with _context.using(ctx):
         base: Mapping[str, Any] = full_profile.extract_base_atmosphere(

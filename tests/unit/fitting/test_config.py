@@ -40,7 +40,7 @@ def test_reference_defaults() -> None:
         ),
         (LSF, {"resolution_tol": 1.5}, r"^resolution_tol: must be in \(0, 1\)"),
         (LSF, {"resolution_bounds": [2e5, 1e5]}, r"^resolution_bounds: must satisfy 0 < lo < hi"),
-        (Wavelength, {"scope": "exposure", "order": 1}, r"^scope: an exposure-wide offset"),
+        (Wavelength, {"scope": "exposure", "order": 1}, r"^scope: an exposure-wide correction"),
         (Wavelength, {"scope": "night"}, r"^scope: must be one of"),
         (Wavelength, {"bounds_kms": [0.1, 1.0]}, r"^bounds_kms: must satisfy lo < 0 < hi"),
         (Wavelength, {"order": -1}, r"^order: must be >= 0"),

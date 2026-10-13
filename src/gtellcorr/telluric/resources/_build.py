@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a gtellcorr LNFL/LBLRTM resource bundle offline.
 
-The builder consumes three caller-supplied, hash-pinned archives and never
+The builder uses three caller-supplied archives (checked against their SHA-256) and never
 downloads resources.  It extracts source archives into a new staging tree,
 removes archive-provided compiler outputs, builds explicit GNU targets (macOS
 arm64 or Linux),
@@ -128,7 +128,7 @@ class LblrtmBuildSpec:
 
 @dataclass(frozen=True, slots=True)
 class SharedTape3Identity:
-    """Validated byte and scientific identity of one shared TAPE3."""
+    """Checked size and checksums of one shared TAPE3."""
 
     path: Path
     size_bytes: int
@@ -139,7 +139,7 @@ class SharedTape3Identity:
 
 @dataclass(frozen=True, slots=True)
 class ArchiveMember:
-    """A tar member paired with its canonical bundle-relative path."""
+    """A tar member paired with its normalized bundle-relative path."""
 
     metadata: tarfile.TarInfo
     relative_path: PurePosixPath
@@ -179,7 +179,7 @@ def _lblrtm_build_spec(precision: str) -> LblrtmBuildSpec:
 def _build_recipe_precision_contract(
     lblrtm_build_spec: LblrtmBuildSpec,
 ) -> dict[str, Any]:
-    """Return the mixed-precision build and TAPE12 ABI contract."""
+    """Return the mixed-precision build settings and the TAPE12 binary layout."""
 
     return {
         "lnfl_precision": LNFL_PRECISION,
@@ -232,7 +232,7 @@ def _require_manifest_mapping(
 
 
 def _source_records() -> Mapping[str, Mapping[str, Any]]:
-    """The built-in manifest records of the pinned source archives."""
+    """The shipped manifest's records of the source archives."""
     manifest = load_lblrtm_resource_manifest()
     raw_sources = _require_manifest_mapping(
         manifest.data.get("sources"),
@@ -316,7 +316,7 @@ def _validate_shared_tape3(
     *,
     product_record: Mapping[str, Any],
 ) -> SharedTape3Identity:
-    """Validate a caller-shared TAPE3 against pinned scientific identities."""
+    """Check a caller-shared TAPE3 against the checksums in the shipped manifest."""
 
     path = _resolve_regular_input(path_value, label="shared TAPE3")
     expected_semantic = product_record.get("semantic_sha256")
@@ -367,7 +367,7 @@ def _validate_exact_file_identity(
     size_bytes: int,
     sha256_digest: str,
 ) -> None:
-    """Require one staged file to preserve a previously measured identity."""
+    """Require a copied file to keep the size and checksum measured before."""
 
     actual_size = path.stat().st_size
     if actual_size != size_bytes:
@@ -387,7 +387,7 @@ def _validate_pinned_input(
     label: str,
     record: Mapping[str, Any],
 ) -> None:
-    """Check that *path* has the size and SHA-256 pinned in *record*."""
+    """Check that *path* has the size and SHA-256 recorded in *record*."""
     expected_size, expected_sha256 = _expected_pinned_identity(
         record,
         label=label,
@@ -409,7 +409,7 @@ def _expected_pinned_identity(
     *,
     label: str,
 ) -> tuple[int, str]:
-    """``(size_bytes, sha256)`` pinned in a manifest *record*."""
+    """``(size_bytes, sha256)`` recorded in a manifest *record*."""
     expected_size = record.get("size_bytes")
     expected_sha256 = record.get("sha256")
     if not isinstance(expected_size, int) or not isinstance(expected_sha256, str):
@@ -514,7 +514,7 @@ def _validate_inputs(
     args: argparse.Namespace,
     source_records: Mapping[str, Mapping[str, Any]],
 ) -> BuildInputs:
-    """The three source archives, resolved and checked against their pinned hashes."""
+    """The three source archives, resolved and checked against their recorded hashes."""
     inputs = BuildInputs(
         lnfl_archive=_resolve_regular_input(
             args.lnfl_archive,
@@ -906,7 +906,7 @@ def _patch_osx_gnu_target(
     make_target: str,
     compiler_flags: str,
 ) -> None:
-    """Set the compiler (``FC=$(FC)``) and the pinned flags of *make_target* in a
+    """Set the compiler (``FC=$(FC)``) and the fixed flags of *make_target* in a
     Makefile."""
     try:
         lines = makefile_path.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -1108,9 +1108,9 @@ def _run_lnfl(
     tape5_summary = parse_lnfl_tape5(tape5)
     tape6_summary = parse_lnfl_tape6(tape6)
     if tape5_summary.molecule_selection_mask != expected_mask:
-        raise ResourceBuildError("generated TAPE5 does not preserve the canonical 47-slot mask")
+        raise ResourceBuildError("generated TAPE5 does not keep the standard 47-slot molecule mask")
     if tape6_summary.molecule_selection_mask != expected_mask:
-        raise ResourceBuildError("LNFL TAPE6 did not echo the canonical 47-slot mask")
+        raise ResourceBuildError("LNFL TAPE6 did not echo the standard 47-slot molecule mask")
     tape3_header = read_tape3_header(tape3)
     validate_tape3_metadata(
         tape3_header,
@@ -1217,7 +1217,7 @@ def _stage_mt_ckd_h2o_runtime_resource(
     output_root: Path,
     product_record: Mapping[str, Any],
 ) -> Path:
-    """Stage pinned MT_CKD bytes with no-follow, exclusive descriptors."""
+    """Copy the MT_CKD file into the bundle with no-follow, exclusive descriptors."""
 
     source_relative = MT_CKD_H2O_CONTINUUM_SOURCE_RELATIVE_PATH
     source_parent_fd = _open_directory_chain_without_symlinks(
@@ -1380,7 +1380,7 @@ def _inspect_elf_linkage(
     *,
     readelf_command: str,
 ) -> dict[str, Any]:
-    """ELF counterpart (Linux) of the Mach-O linkage audit."""
+    """ELF counterpart (Linux) of the Mach-O linkage check."""
 
     dynamic = _capture_checked_text(
         (readelf_command, "-d", str(executable)),
@@ -1462,7 +1462,7 @@ def _collect_netcdf_provenance(
     *,
     linked_libraries: Sequence[str],
 ) -> dict[str, Any]:
-    """Provenance of the NetCDF installation the executables link to
+    """Where the NetCDF installation the executables link to came from
     (configuration tools, versions, libraries)."""
     configuration_tools: dict[str, Any] = {}
     missing_configuration_tools: list[str] = []
@@ -1520,7 +1520,7 @@ def _write_provenance(
     tape3_product: Path,
     tape3_source_policy: str,
 ) -> None:
-    """Write the build provenance (sources, products, toolchain, recipe) into the
+    """Write the record of the build (sources, products, toolchain, recipe) into the
     bundle."""
     runtime_linkage = {
         "lnfl_executable": _inspect_macho_linkage(

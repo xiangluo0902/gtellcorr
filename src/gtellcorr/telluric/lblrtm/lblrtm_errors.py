@@ -17,7 +17,7 @@ class LblrtmResourceError(LblrtmError):
 
 
 class LblrtmManifestError(LblrtmResourceError, ValueError):
-    """Raised when a resource manifest violates its schema contract."""
+    """Raised when a resource manifest does not have the expected format."""
 
 
 class LblrtmResourceIntegrityError(LblrtmResourceError):

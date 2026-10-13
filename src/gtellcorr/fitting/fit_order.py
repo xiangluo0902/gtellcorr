@@ -61,12 +61,12 @@ def _name_errors(errors: Array | None, names: Sequence[str]) -> dict[str, float]
 
 
 def _shift(state: ModelState) -> tuple[float, ...] | None:
-    """The offset coefficients of *state* as floats (``None``: no offset)."""
+    """The correction coefficients of *state* as floats (``None``: no correction)."""
     return None if state.wave_shift is None else tuple(float(v) for v in state.wave_shift)
 
 
 def _shift_err(spec: FitSpec, errors: dict[str, float], prefix: str) -> tuple[float, ...] | None:
-    """Errors of the fitted offset coefficients (shared ones carry no order prefix)."""
+    """Errors of the fitted correction coefficients (shared ones carry no order prefix)."""
     if not spec.fit_wave_shift:
         return None
     if spec.wave_shift_scope == "exposure":
@@ -301,7 +301,7 @@ def fit_joint_orders(
 ) -> JointOrdersFitResult:
     """Fit one exposure with exposure-scope parameters (relcols) shared across orders.
 
-    Order-scope parameters (resolution, LSF shape, per-order wavelength offset) and
+    Order-scope parameters (resolution, LSF shape, per-order wavelength correction) and
     the projected continuum stay independent per order. The objective is the
     concatenation of the per-order residuals. Every order needs fitted molecules
     and more kept pixels than continuum coefficients plus one (``ValueError``).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze an assembled LBLRTM bundle into an immutable manifest.
+"""Record the file sizes and checksums of an assembled LBLRTM bundle in its manifest.
 
 This command performs no download.
 All paths are resolved from the supplied bundle root and manifest template.
@@ -417,7 +417,7 @@ def freeze_manifest(
         _record["relative_path"] = _record["relative_path"].replace("_OS_X_", f"_{_PRODUCT_TAG}_")
         if _HOST_SYSTEM == "Linux":
             _record["executable_format"] = f"ELF {__import__('platform').machine()}"
-    # The template's build contract names the macOS targets and products; the
+    # The template's ``build_contract`` section names the macOS targets and products; the
     # recipe of a Linux build is compared against it, so translate it as well.
     _contract = data["build_contract"]
     for _key in ("lnfl_make_target", "lblrtm_make_target"):

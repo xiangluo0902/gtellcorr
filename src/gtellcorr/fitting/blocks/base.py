@@ -31,8 +31,8 @@ class ModelState:
     extra: Mapping[str, Any] = field(default_factory=dict)
     """Values of plug-in blocks."""
     wave_shift: tuple[float, ...] | None = None
-    """Chebyshev coefficients [km/s] of the telluric-model velocity offset across the
-    order; ``None`` = no offset (the model is not resampled)."""
+    """Chebyshev coefficients [km/s] of the wavelength-solution correction across the
+    order; ``None`` = no correction (the model is not resampled)."""
 
     @classmethod
     def initial(cls, spec: FitSpec) -> ModelState:

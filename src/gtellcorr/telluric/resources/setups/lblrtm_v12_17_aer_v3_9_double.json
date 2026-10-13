@@ -6,10 +6,10 @@
       "source_url": "https://eodg.atm.ox.ac.uk/RFM/atm/ngt.atm"
     }
   },
-  "contract_id": "lblrtm-12.17_lnfl-3.2_aer-line-file-3.9_mt-ckd-4.3_double",
+  "setup_id": "lblrtm-12.17_lnfl-3.2_aer-line-file-3.9_mt-ckd-4.3_double",
   "derived_from": "lblrtm_v12_17_lnfl_v3_2_aer_v3_9_gnu_double_project_runtime_manifest.json",
   "description": "LBLRTM v12.17 (double precision) with LNFL v3.2, the AER v3.9 line file and MT_CKD 4.3, as used in the gtellcorr paper.",
-  "identity": {
+  "physics": {
     "lnfl_tape5_sha256": "9a08cc09d32163c2071da53f15682710c3160111442a99b3265add51bf218d0c",
     "mt_ckd_h2o_continuum_coefficients": {
       "sha256": "69944eb8b045c268e2daeb2cddf536b99f9e9efe7e91c425067b46a5b287ddb3",

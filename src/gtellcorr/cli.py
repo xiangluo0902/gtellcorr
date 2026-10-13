@@ -130,7 +130,7 @@ def _cmd_resources_status(args: argparse.Namespace) -> int:
     if bundle["ok"]:
         print(f"               {bundle['description']}")
         if args.verbose:
-            print(f"               fingerprint {bundle['fingerprint']}")
+            print(f"               manifest checksum {bundle['fingerprint']}")
     else:
         print(f"               {bundle['problem']}")
     for key, label in (("mipas", "MIPAS"), ("celestrak", "CelesTrak")):
@@ -180,11 +180,11 @@ def _cmd_resources_fetch(args: argparse.Namespace) -> int:
     """``resources fetch``: download the MIPAS and/or CelesTrak reference files."""
     from gtellcorr.data.atmosphere.reference import fetch_celestrak, fetch_mipas
     from gtellcorr.settings import Settings
-    from gtellcorr.telluric.resources import load_contract
+    from gtellcorr.telluric.resources import load_setup
 
     folder = Settings.load().resource_root / "atmosphere"
     if args.what in ("mipas", "all"):
-        ref = load_contract()["atmosphere_references"]["rfm_mipas_midlatitude_night"]
+        ref = load_setup()["atmosphere_references"]["rfm_mipas_midlatitude_night"]
         got = fetch_mipas(
             folder, file_name=ref["file_name"], sha256=ref["sha256"], url=ref["source_url"]
         )

@@ -1,12 +1,12 @@
 """Calculate direct LBLRTM transmission for one explicit wavelength request.
 
-This module is the direct telluric radiative-transfer orchestration boundary.
-A request converts one explicit wavelength range into a deterministic
+This module runs the telluric radiative transfer.
+A request turns one explicit wavelength range into a
 TAPE5, delegates isolated execution to
 :mod:`gtellcorr.telluric.lblrtm.lblrtm_runner`, parses
 the returned TAPE12 with the independent public reader, and returns an
 increasing wavelength spectrum.  Wider requests are planned and executed as
-deterministic overlapping LBLRTM segments, then merged with fixed ownership.
+overlapping LBLRTM segments, then merged, each wavenumber taken from one fixed segment.
 
 It does not read the gtellcorr configuration, apply an instrument line-spread
 function, fit an observational continuum, or alter non-physical transmission
@@ -123,7 +123,7 @@ _TAPE12_ABI_EVIDENCE_KEYS: Final[tuple[str, ...]] = (
 def _declared_tape12_abi(
     resources: ResolvedLblrtmResourceFiles,
 ) -> tuple[LblrtmTape12Abi | None, bool]:
-    """Return a complete resource ABI contract and metadata-extension policy."""
+    """Return the full TAPE12 binary layout of the bundle and how its metadata is extended."""
 
     evidence = getattr(resources, "validation_evidence", None)
     if not isinstance(evidence, Mapping):
@@ -155,7 +155,7 @@ def _validate_tape12_abi_against_resources(
     source: bytes,
     resources: ResolvedLblrtmResourceFiles,
 ) -> LblrtmTape12Abi | None:
-    """Match one detected TAPE12 ABI to its validated resource contract."""
+    """Match one detected TAPE12 binary layout to the one the bundle declares."""
 
     declared, include_in_metadata = _declared_tape12_abi(resources)
     if declared is None:
@@ -232,7 +232,7 @@ def audit_lblrtm_tape12_transmission(
 
 @dataclass(frozen=True, slots=True)
 class _NormalizedTransmissionRequest:
-    """Immutable numerical interpretation of one public wavelength request."""
+    """Numerical form of one wavelength request (read-only)."""
 
     requested_wavelength_range_nm: tuple[float, float]
     expanded_wavelength_range_nm: tuple[float, float]
@@ -247,7 +247,7 @@ class _NormalizedTransmissionRequest:
 
 @dataclass(frozen=True, slots=True)
 class _LblrtmPlannedSpectralSegment:
-    """One deterministic rendered window and its uniquely owned core."""
+    """One TAPE5 window and the core range it alone supplies."""
 
     segment_index: int
     rendered_window_ticks: tuple[int, int]
@@ -257,7 +257,7 @@ class _LblrtmPlannedSpectralSegment:
 
 @dataclass(frozen=True, slots=True)
 class _LblrtmMultisegmentPlan:
-    """Immutable segment plan for one complete quantized wavenumber window."""
+    """Segment plan for one complete wavenumber window, rounded to TAPE5 precision."""
 
     complete_window_ticks: tuple[int, int]
     segments: tuple[_LblrtmPlannedSpectralSegment, ...]
@@ -266,7 +266,7 @@ class _LblrtmMultisegmentPlan:
 
 @dataclass(frozen=True, slots=True)
 class _LblrtmSpectralSegmentResult:
-    """One parsed TAPE12 segment together with its audited execution result."""
+    """One parsed TAPE12 segment together with the checked result of its run."""
 
     spectral_window: LblrtmSpectralWindow
     wavenumber_cm1: np.ndarray
@@ -279,7 +279,7 @@ class _LblrtmSpectralSegmentResult:
 
 @dataclass(frozen=True, slots=True)
 class _LblrtmMultisegmentPhysicalInputSnapshot:
-    """One immutable physical and resource identity shared by every segment."""
+    """The physical inputs and LBLRTM bundle shared by every segment (read-only)."""
 
     normalized_request: _NormalizedTransmissionRequest
     full_profile: Mapping[str, np.ndarray]
@@ -295,7 +295,7 @@ class _LblrtmMultisegmentPhysicalInputSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class _LblrtmValidatedSpectralSegmentResult:
-    """Validated TAPE12 arrays and compact audit identities for one segment.
+    """Checked TAPE12 arrays and short checksums of the run files for one segment.
 
     Raw TAPE6 text and TAPE12 bytes are intentionally not retained after the
     strict reader and complete-segment checks finish.  Keeping only their
@@ -367,9 +367,9 @@ def calculate_lblrtm_transmission(
     acceptance path and rejects non-physical transmission.  With
     ``quality_mode="evaluate"``, the complete raw transmission is returned
     together with quality flags and ``fit_usable``; values are never clipped
-    or repaired.  The evaluation mode supplies complete samples and audit
+    or repaired.  The evaluation mode supplies complete samples and quality
     flags to :class:`~gtellcorr.telluric.lblrtm.tau_cache.TauCache`; those flags
-    are provenance only and are not converted into a fit mask.
+    are only recorded and are not converted into a fit mask.
 
     ``wave_margin_nm`` is applied symmetrically in ``wavelength_medium``
     before an air request is converted to vacuum wavelength and reciprocal
@@ -381,9 +381,9 @@ def calculate_lblrtm_transmission(
 
     A request no wider than 2000 cm-1 after outward fixed-width quantization
     runs as a single segment.  Wider requests are executed
-    sequentially on deterministic overlapping rendered windows.  Their
-    complete binary-TAPE12 spectra are validated before fixed, non-blended
-    ownership is applied.
+    one after another on overlapping windows.  Their complete binary-TAPE12
+    spectra are checked before each wavenumber is taken from one fixed segment
+    (no blending).
     """
 
     if quality_mode not in {"strict", "evaluate"}:
@@ -653,9 +653,8 @@ def _canonicalize_molecule_relative_columns(
 ) -> dict[str, float]:
     """Return effective relative columns for all 12 profile molecules.
 
-    The returned canonical snapshot is passed to the writer as well as stored
-    in result metadata, so caller mutation cannot make those two records
-    disagree.
+    The returned copy is passed to the writer as well as stored in the result
+    metadata, so changes by the caller cannot make the two disagree.
     """
 
     if molecule_relative_columns is None:
@@ -956,7 +955,7 @@ def _calculate_balanced_segment_width_ticks(
 def _compute_lblrtm_segment_plan_sha256(
     plan: _LblrtmMultisegmentPlan,
 ) -> str:
-    """Return the exact semantic identity (SHA-256) of one segment plan."""
+    """Return the SHA-256 of one segment plan."""
 
     if not isinstance(plan, _LblrtmMultisegmentPlan):
         raise LblrtmInputError("internal error: the segment plan has the wrong type")
@@ -1009,7 +1008,7 @@ def _validate_integer_tick_window(
 def _validate_lblrtm_multisegment_plan(
     plan: _LblrtmMultisegmentPlan,
 ) -> None:
-    """Fail closed unless a plan exactly satisfies the frozen segmentation policy."""
+    """Raise unless a plan follows the fixed segmentation rules exactly."""
 
     if not isinstance(plan, _LblrtmMultisegmentPlan):
         raise LblrtmInputError("internal error: plan must be an _LblrtmMultisegmentPlan")
@@ -1063,7 +1062,7 @@ def _validate_lblrtm_multisegment_plan(
         core_lower, core_upper = segment.core_window_ticks
         if rendered_upper - rendered_lower != expected_width:
             raise LblrtmInputError(
-                f"segment {index} rendered width is not deterministically balanced"
+                f"internal error: segment {index} does not have the planned width"
             )
         expected_rendered_lower = (
             complete_lower
@@ -1132,7 +1131,7 @@ def _validate_lblrtm_multisegment_plan(
 def _build_lblrtm_multisegment_plan(
     complete_window: LblrtmSpectralWindow,
 ) -> _LblrtmMultisegmentPlan:
-    """Build and validate one deterministic integer-tick segment plan."""
+    """Build and check one segment plan in whole steps of 0.001 cm-1."""
 
     if not isinstance(complete_window, LblrtmSpectralWindow):
         raise LblrtmInputError("complete_window must be an LblrtmSpectralWindow")
@@ -1318,7 +1317,7 @@ def _validate_spectral_window_inside_resource_support(
 def _snapshot_lblrtm_full_profile_arrays(
     full_profile: Mapping[str, object],
 ) -> Mapping[str, np.ndarray]:
-    """Copy the complete MODEL=0 atmosphere once into immutable float64 arrays."""
+    """Copy the complete MODEL=0 atmosphere once into read-only float64 arrays."""
 
     if not isinstance(full_profile, Mapping):
         raise LblrtmInputError("full_profile must be a mapping of level arrays")
@@ -1361,11 +1360,11 @@ def _snapshot_lblrtm_full_profile_arrays(
             )
     except (TypeError, ValueError, OverflowError) as exc:
         raise LblrtmInputError(
-            "cannot normalize the captured multisegment full-profile snapshot"
+            "internal error: cannot normalize the copy of the atmospheric profile"
         ) from exc
     except MemoryError as exc:
         raise LblrtmInputError(
-            "cannot allocate the normalized multisegment full-profile snapshot"
+            "cannot allocate memory for the normalized copy of the atmospheric profile"
         ) from exc
 
     frozen_profile: Mapping[str, np.ndarray] = MappingProxyType(snapshots)
@@ -1439,7 +1438,7 @@ def _freeze_lblrtm_float64_output_array(
     *,
     field_name: str,
 ) -> np.ndarray:
-    """Return an immutable bytes-backed copy of one parsed output array."""
+    """Return a read-only copy of one parsed output array."""
 
     try:
         array = np.array(value, dtype=np.float64, copy=True)
@@ -1664,7 +1663,7 @@ def _add_lblrtm_multisegment_failure_provenance_note(
     tape12_sha256: str = "unavailable",
     completed_segment_count: int,
 ) -> None:
-    """Attach the frozen nine-field, path-free first-failure identity."""
+    """Attach a nine-field description of the first failure (without file paths)."""
 
     note_prefix = "LBLRTM multisegment failure provenance:"
     existing_evidence = (
@@ -2125,7 +2124,7 @@ def _resample_multisegment_transmission_to_requested_grid(
     """Interpolate every caller point only within its fixed owning run."""
 
     output_wavelength = request.output_wavelength_grid_nm
-    if output_wavelength is None:  # pragma: no cover - caller invariant
+    if output_wavelength is None:  # pragma: no cover - the caller passes it
         raise AssertionError("caller output grid is unavailable")
     output_wavenumber = _convert_requested_output_grid_to_vacuum_wavenumber(
         output_wavelength,
@@ -2237,7 +2236,7 @@ def _build_lblrtm_multisegment_metadata(
     resampling: str,
     allow_nonphysical: bool = False,
 ) -> dict[str, object]:
-    """Build exact schema-v3, path-free multisegment provenance."""
+    """Build the record of a multi-segment run (format 3, without file paths)."""
 
     output_semantic_sha256 = _compute_lblrtm_spectrum_semantic_sha256(
         output_wavelength_nm,
@@ -2928,7 +2927,7 @@ def _build_transmission_metadata(
     output_grid_kind: str,
     resampling: str,
 ) -> dict[str, object]:
-    """Build deterministic, host-independent scientific provenance."""
+    """Build the record of the calculation inputs (the same on every computer)."""
 
     run_result = segment.run_result
     metadata: dict[str, object] = {
@@ -2997,7 +2996,7 @@ def _normalize_wavelength_vector(
     minimum_size: int | None = None,
     maximum_size: int | None = None,
 ) -> np.ndarray:
-    """Return one immutable, finite, positive, increasing float64 vector."""
+    """Return one read-only, finite, positive, increasing float64 vector."""
 
     if isinstance(value, (str, bytes, bytearray, memoryview)):
         raise LblrtmInputError(f"{field_name} must be a numerical one-dimensional collection")
@@ -3104,7 +3103,7 @@ def _floating_coordinate_tolerance(*values: float) -> float:
 
 
 def _add_exception_note(exception: BaseException, note: str) -> None:
-    """Attach secondary provenance on Python 3.10 and Python 3.11+."""
+    """Attach a secondary error on Python 3.10 and Python 3.11+."""
 
     add_note = getattr(exception, "add_note", None)
     if callable(add_note):
@@ -3123,7 +3122,7 @@ def _add_run_provenance_note(
     exception: BaseException,
     run_result: LblrtmRunResult,
 ) -> None:
-    """Attach path-free identities for every post-run output rejection."""
+    """Attach a description (without file paths) of each output rejected after the run."""
 
     _add_exception_note(
         exception,
@@ -3140,7 +3139,7 @@ def _coerce_nonnegative_finite_float(
     *,
     field_name: str,
 ) -> float:
-    """Return one canonical finite scalar greater than or equal to zero."""
+    """Return one finite float greater than or equal to zero."""
 
     if isinstance(value, (bool, np.bool_)):
         raise LblrtmInputError(f"{field_name} must be a real number, not bool")

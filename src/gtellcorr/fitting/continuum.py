@@ -67,7 +67,7 @@ def fit_continuum(
     ``weight`` is the explicit per-pixel inverse variance ``w = 1/σ²`` from the
     fit.  The continuum is the exact weighted variable-projection solution — a
     σ-clipped weighted polynomial of ``obs/model`` with weight ``w·model²`` (see
-    module docstring).  ``None`` is rejected fail-closed.
+    module docstring).  ``None`` is rejected.
 
     ``mask`` (True = KEEP): fit only on the kept pixels; excluded pixels have
     already been removed by the caller's active mask union.

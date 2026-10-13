@@ -1,6 +1,6 @@
 """Per-molecule optical-depth cache backed by direct LBLRTM IEMIT=0 output.
 
-The public surface is the cache contract consumed by the fitting engine.  A
+The public interface is the cache used by the fitting engine.  A
 complete 121-level atmosphere is mandatory; the caller, rather than this
 module, owns construction of that atmosphere.
 
@@ -66,7 +66,7 @@ _REFERENCE_COLUMNS: Final[Mapping[str, float]] = MappingProxyType(
 )
 
 # A mutable dict and ordered tuple are retained for compatibility with callers
-# of the established cache API.  Internal calculations use the immutable table
+# of the existing cache API.  Internal calculations use the read-only table
 # above, so external mutation cannot change the scientific interpretation.
 REF_COLUMN = dict(_REFERENCE_COLUMNS)
 MOLECULES = tuple(_REFERENCE_COLUMNS)
@@ -210,7 +210,7 @@ def _snapshot_profile(
     except KeyError as exc:
         raise ValueError(f"atmosphere_profile is missing required field {exc.args[0]!r}") from exc
     except (TypeError, ValueError, OverflowError, MemoryError) as exc:
-        raise ValueError("cannot snapshot atmosphere_profile") from exc
+        raise ValueError("cannot copy atmosphere_profile") from exc
 
     captured_mapping: Mapping[str, object] = MappingProxyType(captured)
     try:
@@ -432,8 +432,8 @@ def _normalize_tape12_abi(value: object) -> tuple[dict[str, object], str]:
 def _resource_provenance(
     resources: ResolvedLblrtmResourceFiles,
 ) -> Mapping[str, Any]:
-    """The resource identity recorded in the cache (manifest fingerprint,
-    precision, TAPE12 ABI, validation evidence) of fully validated resources."""
+    """The LBLRTM bundle record kept in the cache (manifest checksum, precision,
+    TAPE12 layout, file checksums from the bundle check) of a fully checked bundle."""
     if not isinstance(resources, ResolvedLblrtmResourceFiles):
         raise TypeError(
             "resources must be a ResolvedLblrtmResourceFiles instance returned "
@@ -467,7 +467,7 @@ def _resource_provenance(
 
 
 def _normalize_loaded_resource_provenance(value: object) -> Mapping[str, Any]:
-    """The resource provenance of a loaded cache, checked field by field."""
+    """The LBLRTM bundle record of a loaded cache, checked field by field."""
     if not isinstance(value, Mapping):
         raise ValueError("optical-depth cache: its LBLRTM bundle record is not a table")
     record = dict(value)
@@ -550,7 +550,7 @@ def _freeze_json(value: object) -> object:
 
 
 def _json_bytes(value: Mapping[str, object]) -> bytes:
-    """Canonical, size-bounded JSON bytes of *value* (sorted keys, ASCII)."""
+    """JSON bytes of *value* (sorted keys, ASCII, size-limited)."""
     try:
         encoded = json.dumps(
             _json_ready(value),
@@ -560,14 +560,14 @@ def _json_bytes(value: Mapping[str, object]) -> bytes:
             allow_nan=False,
         ).encode("ascii")
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError("cache metadata is not deterministic JSON") from exc
+        raise ValueError("cache metadata cannot be written as JSON") from exc
     if len(encoded) > _MAXIMUM_METADATA_BYTES:
         raise ValueError(f"cache metadata exceeds the {_MAXIMUM_METADATA_BYTES}-byte safety limit")
     return encoded
 
 
 def compute_tau_cache_key(cache_metadata: Mapping[str, object]) -> str:
-    """Return the schema-v3 key for one complete cache identity record."""
+    """Return the cache key (format 3) for the full record of what a cache depends on."""
 
     if not isinstance(cache_metadata, Mapping):
         raise TypeError("cache_metadata must be a mapping")
@@ -601,8 +601,8 @@ def _cache_key_metadata(
     fixed_columns: Mapping[str, float],
     column_scale_denominators: Mapping[str, float],
 ) -> Mapping[str, object]:
-    """Everything that identifies a cache: resources, profile digest, window,
-    geometry, wavelength conversion, molecules and columns, construction policy."""
+    """Everything a cache depends on: LBLRTM bundle, profile checksum, window,
+    geometry, wavelength conversion, molecules and columns, construction rules."""
     resource = {
         "manifest_fingerprint": resource_provenance["manifest_fingerprint"],
         "lblrtm_precision": resource_provenance["lblrtm_precision"],
@@ -717,7 +717,7 @@ def _require_expected_cache_identity(
 
 
 def _calculator_metadata_record(metadata: Mapping[str, Any]) -> dict[str, object]:
-    """Retain only path-free calculator evidence used by cache auditing."""
+    """Keep only the calculator details (without file paths) checked when a cache is loaded."""
 
     if not isinstance(metadata, Mapping):
         raise TypeError("calculator metadata must be a mapping")
@@ -1016,7 +1016,7 @@ def _validate_loaded_build_provenance(
     profile_digest: str,
     resource_fingerprint: str,
 ) -> object:
-    """Check the build provenance of a loaded cache against its grid,
+    """Check the build record of a loaded cache against its grid,
     molecules, columns and construction settings."""
     if not isinstance(value, Mapping):
         raise ValueError("optical-depth cache: its build record is not a table")
@@ -1230,10 +1230,10 @@ def _validate_loaded_build_provenance(
 
 
 class TauCache:
-    """Cache per-molecule optical depth for one immutable atmosphere and path.
+    """Cache per-molecule optical depth for one atmosphere and path.
 
-    ``pressure``, ``temperature``, and ``lat`` are retained for public-contract
-    compatibility and provenance.  They do not modify the supplied profile.
+    ``pressure``, ``temperature``, and ``lat`` are kept for compatibility with
+    earlier callers and recorded with the cache.  They do not modify the supplied profile.
     The complete 121-level profile is the sole pressure, temperature, and
     molecular state passed to LBLRTM.
     """
@@ -1415,7 +1415,7 @@ class TauCache:
 
     @property
     def provenance(self) -> Mapping[str, Any]:
-        """Resource, build and cache-key provenance of this cache."""
+        """Record of the LBLRTM bundle, the build and the cache key of this cache."""
         return MappingProxyType(
             {
                 "resource": self.resource_provenance,
@@ -1654,7 +1654,7 @@ class TauCache:
             "resource_fingerprint": self.resource_provenance["manifest_fingerprint"],
             "runs": run_records,
         }
-        # Commit state only after all runs, rebinning, and provenance capture
+        # Commit state only after all runs, rebinning, and recording
         # have succeeded, so a failed rebuild never exposes a partial cache.
         self.wavegrid = cache_grid
         self.fit_molecules = molecules
@@ -1874,8 +1874,8 @@ class TauCache:
 
         ``resources`` is optional because evaluating an existing cache performs
         no external lookup or LBLRTM execution.  Supplying resources verifies
-        their complete-validator identity and enables a later explicit rebuild.
-        At least one caller-owned expected identity gate is mandatory.
+        them with the full bundle check and enables a later explicit rebuild.
+        The caller must give at least one expected key to check against.
         """
 
         if expected_cache_key is None and expected_metadata is None:
@@ -2080,8 +2080,8 @@ class TauCache:
             }
             if _json_ready(current_resource_identity) != _json_ready(recorded_resource_identity):
                 raise ValueError(
-                    "the optical-depth cache was made with a different LBLRTM bundle (resource "
-                    "fingerprint, precision or TAPE12 layout differ)"
+                    "the optical-depth cache was made with a different LBLRTM bundle (manifest "
+                    "checksum, precision or TAPE12 layout differ)"
                 )
             validated_resources = resources
 

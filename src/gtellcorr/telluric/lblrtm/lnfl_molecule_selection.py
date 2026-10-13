@@ -1,8 +1,8 @@
 """LNFL v3.2 molecule registry and fixed-width selection-mask helpers.
 
 LNFL v3.2 reads one molecule-selection flag per slot from a 47-column field.
-Keeping the registry and mask construction here makes that file-format
-contract explicit and prevents ambiguous short masks.
+Keeping the registry and mask construction here makes that file format
+explicit and prevents ambiguous short masks.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ _LNFL_V3_2_MOLECULE_REGISTRY: Final[tuple[LnflMolecule, ...]] = (
 
 
 def load_lnfl_molecule_registry() -> tuple[LnflMolecule, ...]:
-    """Return the immutable LNFL v3.2 molecule registry in slot order."""
+    """Return the LNFL v3.2 molecule registry in slot order."""
 
     return _LNFL_V3_2_MOLECULE_REGISTRY
 

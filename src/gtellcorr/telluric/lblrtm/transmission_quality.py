@@ -2,7 +2,7 @@
 
 This module never changes transmission values.  It only classifies each raw
 finite TAPE12 sample and constructs the mask consumed by a fitting adapter.
-The strict TAPE12 reader remains a separate fail-closed acceptance path.
+The strict TAPE12 reader remains a separate check that rejects bad files.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ _FLAG_DTYPE: Final = np.dtype(np.uint8)
 
 @dataclass(frozen=True, slots=True)
 class TransmissionQualitySummary:
-    """Immutable, JSON-friendly summary of one classified spectrum."""
+    """Read-only, JSON-friendly summary of one classified spectrum."""
 
     total_count: int
     physical_count: int
@@ -109,7 +109,7 @@ def summarize_transmission_quality(
     transmission: object,
     quality_flags: object | None = None,
 ) -> TransmissionQualitySummary:
-    """Summarize classified raw values for provenance and fitting reports."""
+    """Summarize classified raw values for the cache record and fitting reports."""
 
     values = _as_1d_float64(transmission, field_name="transmission")
     flags = (

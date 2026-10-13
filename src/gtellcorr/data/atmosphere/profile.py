@@ -72,7 +72,7 @@ class AtmosphereProfile:
     (height increasing).  Units are explicit in the field names.
     """
 
-    # -- Provenance / metadata --
+    # -- Where the data came from / metadata --
     backend: str
     fetched_utc: str  # ISO-8601 UTC timestamp of retrieval
     source_url: str = ""  # URL or path the data came from

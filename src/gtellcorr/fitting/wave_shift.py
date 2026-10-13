@@ -1,6 +1,6 @@
-"""Wavelength offset of the telluric model.
+"""Correction of the wavelength solution, fitted on the telluric lines.
 
-The offset is a velocity ``v(x) = sum_k c_k T_k(u)`` [km/s]. The Chebyshev argument
+The correction is a velocity ``v(x) = sum_k c_k T_k(u)`` [km/s]. The Chebyshev argument
 is a velocity coordinate too: ``u`` maps ``ln x`` (``d ln x = dv / c``) over the
 order's finite positive wavelength range onto [-1, 1], so equal steps in ``u`` are
 equal steps in velocity across the order. The model is resampled as
@@ -8,10 +8,11 @@ equal steps in velocity across the order. The model is resampled as
 lines to the red. Only the telluric transmission is shifted; the data grid and the
 stellar model (placed by the measured RV) are not.
 
-The same factor read the other way round gives the wavelengths of the data pixels
-anchored on the telluric lines, ``lambda / (1 + v(x) / c)``
-(:func:`corrected_wavelengths`). They are an output only: the fit, the correction and
-the stellar RV all use the delivered wavelength solution.
+The same factor read the other way round gives the corrected wavelengths of the data
+pixels, ``lambda / (1 + v(x) / c)`` (:func:`corrected_wavelengths`): degree 0
+corrects the zero point of the wavelength solution, higher degrees the dispersion as
+well. They are an output only: the fit, the telluric correction and the stellar RV
+all use the delivered wavelength solution.
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ def corrected_wavelengths(
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Telluric-anchored wavelengths of the same pixels: ``(wave_fit, wave_input) / (1 + v / c)``.
 
-    ``v`` is evaluated on *wave_fit*, the grid the offset was fitted on, so
+    ``v`` is evaluated on *wave_fit*, the grid the correction was fitted on, so
     ``wave_fit / (1 + v / c)`` equals :func:`shifted_grid`. The Doppler factor is
     frame-independent and is applied unchanged to the delivered grid *wave_input*.
     """

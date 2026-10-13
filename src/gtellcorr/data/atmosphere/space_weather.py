@@ -1,4 +1,4 @@
-"""Offline, hash-pinned CelesTrak space-weather input for NRLMSISE-00.
+"""Offline CelesTrak space-weather input for NRLMSISE-00, checked against its SHA-256.
 
 The numerical CSV is an external, caller-owned resource.  Production code
 never downloads it and never reads ``pymsis`` private module state.  This
@@ -68,7 +68,7 @@ class _DailySpaceWeather:
 
 @dataclass(frozen=True)
 class CelestrakSpaceWeather:
-    """Validated daily records plus immutable resource provenance."""
+    """Checked daily records plus a record of the source file."""
 
     records: Mapping[date, _DailySpaceWeather]
     provenance: Mapping[str, object]
@@ -128,7 +128,7 @@ def load_celestrak_space_weather(
 
     Monthly ``PRM`` prediction rows are excluded because their Ap fields are
     not daily values.  Daily observed, interpolated and predicted records are
-    retained and their data type is recorded in every query's provenance.
+    retained, and their data type is recorded with every query.
     """
 
     if not isinstance(expected_sha256, str) or _SHA256_PATTERN.fullmatch(expected_sha256) is None:
@@ -387,7 +387,7 @@ def get_msis_space_weather_inputs(
 
 
 def canonical_msis_space_weather_identity(inputs: Mapping) -> dict:
-    """Return the JSON-safe, validated identity of one MSIS input record."""
+    """Return the checked, JSON-safe record of one set of MSIS inputs (for cache keys)."""
 
     try:
         f107 = float(inputs["f107_previous_day"])
@@ -458,7 +458,7 @@ def _load_configured_reference(
     expected_sha256: str,
     source_url: str,
 ) -> CelestrakSpaceWeather:
-    """The configured snapshot, loaded and hash-checked once per (path, hash, URL)."""
+    """The configured table, loaded and hash-checked once per (path, hash, URL)."""
     return load_celestrak_space_weather(
         path,
         expected_sha256=expected_sha256,
@@ -469,7 +469,7 @@ def _load_configured_reference(
 def configured_msis_space_weather_inputs(
     when_utc: datetime,
 ) -> Mapping[str, object]:
-    """Return MSIS inputs from the configured local, hash-pinned resource."""
+    """Return MSIS inputs from the configured local table (checked against its SHA-256)."""
 
     from gtellcorr.data.atmosphere._context import atm
 

@@ -48,7 +48,7 @@ def test_fetch_and_read_celestrak(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_celestrak_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    with pytest.raises(ResourceError, match="no CelesTrak snapshot recorded"):
+    with pytest.raises(ResourceError, match="no CelesTrak table recorded"):
         reference.latest_celestrak(tmp_path)
     _serve(monkeypatch, b"<html>")
     with pytest.raises(ResourceError, match="unexpected content"):

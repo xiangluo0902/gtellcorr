@@ -250,7 +250,7 @@ def plot_order_fit(
     ax[1].legend(fontsize=8, loc="lower left")
     fig.tight_layout()
 
-    # Saving policy as in the other plotting functions: None means the sibling
+    # Saving works as in the other plotting functions: None means the sibling
     # figure directory, False means caller handles the figure, and explicit path
     # means save exactly there.  PCA overlays get a _pca suffix by default.
     if out is not False:

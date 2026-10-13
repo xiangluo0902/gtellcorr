@@ -1,7 +1,7 @@
-"""Render deterministic LBLRTM v12.17 spectral TAPE5 input.
+"""Write LBLRTM v12.17 spectral TAPE5 input (the same input always gives the same file).
 
-The records written here follow the fixed-width ``READ``/``FORMAT`` contracts
-in the pinned official AER LBLRTM v12.17 source:
+The records written here follow the fixed-width ``READ``/``FORMAT`` statements
+in the official AER LBLRTM v12.17 source:
 
 * ``src/lblrtm.f90`` records 1.1--1.4;
 * ``src/lblatm.f90`` records 3.1--3.6; and
@@ -75,8 +75,8 @@ def validate_lblrtm_layer_input(
     Notes
     -----
     This function validates only.  The renderer repeats the same private
-    validation pipeline while retaining its own immutable snapshots, so it
-    never formats caller-owned mutable arrays.
+    checks on its own read-only copies, so it never formats arrays the caller
+    could still change.
     """
 
     if not isinstance(full_profile, Mapping):
@@ -104,9 +104,9 @@ def render_lblrtm_tape5(
     *,
     molecule_relative_columns: Mapping[str, float] | None = None,
 ) -> str:
-    """Return one canonical ASCII/LF LBLRTM v12.17 TAPE5 as text.
+    """Return one LBLRTM v12.17 TAPE5 (ASCII, LF line ends) as text.
 
-    The supplied profile is snapshotted before formatting.  Missing molecule
+    The supplied profile is copied before formatting.  Missing molecule
     scales default to one, and scaling is applied only to copied molecule
     arrays.  No caller-owned mapping or array is modified.
     """
@@ -193,7 +193,7 @@ def write_lblrtm_tape5(
     *,
     molecule_relative_columns: Mapping[str, float] | None = None,
 ) -> Path:
-    """Render and write exactly one deterministic ASCII/LF TAPE5 file."""
+    """Write one TAPE5 file (ASCII, LF line ends)."""
 
     if isinstance(path, (bytes, bytearray, memoryview)):
         raise LblrtmInputError("path must be str or os.PathLike[str], not bytes")
@@ -247,7 +247,7 @@ def write_lblrtm_tape5(
 def _validate_vertical_grid(
     full_profile: Mapping[str, object],
 ) -> np.ndarray:
-    """Return an immutable, validated altitude snapshot in kilometres."""
+    """Return a checked, read-only copy of the altitudes in kilometres."""
 
     try:
         supplied = full_profile["z_km"]
@@ -284,7 +284,7 @@ def _validate_pressure_temperature_layers(
     *,
     expected_level_count: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return immutable pressure and temperature snapshots."""
+    """Return read-only copies of pressure and temperature."""
 
     validated_arrays: list[np.ndarray] = []
     for field_name in ("P_hPa", "T_K"):
@@ -339,7 +339,7 @@ def _validate_molecule_layer_arrays(
     *,
     expected_level_count: int,
 ) -> dict[str, np.ndarray]:
-    """Return molecule arrays snapshotted in LBLRTM molecule-ID order."""
+    """Return copies of the molecule arrays in LBLRTM molecule-ID order."""
 
     try:
         canonical_molecules = order_lblrtm_molecule_names(required_molecules)
@@ -396,7 +396,7 @@ def _apply_molecule_relative_columns(
     molecule_arrays: Mapping[str, np.ndarray],
     molecule_relative_columns: Mapping[str, float] | None,
 ) -> dict[str, np.ndarray]:
-    """Return copied molecule arrays after deterministic uniform scaling."""
+    """Return copies of the molecule arrays after uniform scaling."""
 
     if molecule_relative_columns is None:
         supplied_items: tuple[tuple[object, object], ...] = ()
@@ -487,7 +487,7 @@ def _calculate_lblrtm_slant_path_geometry(
     altitude_km: np.ndarray,
     line_of_sight: LblrtmLineOfSight,
 ) -> tuple[float, float, float, float, float, int, float]:
-    """Resolve deterministic ITYPE=2 H1-to-H2 geometry."""
+    """Resolve the ITYPE=2 H1-to-H2 geometry."""
 
     if not isinstance(line_of_sight, LblrtmLineOfSight):
         raise LblrtmInputError("run_configuration.line_of_sight must be an LblrtmLineOfSight")
@@ -736,9 +736,7 @@ def _format_lblrtm_geometry_records(
             dtype=np.float64,
         )
     except ValueError as exc:
-        raise LblrtmInputError(
-            "profile altitudes cannot be represented as canonical F10.3 values"
-        ) from exc
+        raise LblrtmInputError("profile altitudes cannot be written as F10.3 values") from exc
     canonical_profile_fragments = tuple(
         f"{0.0:10.3f}" if altitude == 0.0 else fragment
         for altitude, fragment in zip(
@@ -752,7 +750,7 @@ def _format_lblrtm_geometry_records(
         np.diff(canonical_profile_altitudes) > 0.0
     ):
         raise LblrtmInputError(
-            "F10.3 precision does not preserve a strictly increasing canonical profile grid"
+            "at F10.3 precision the profile altitudes are no longer strictly increasing"
         )
 
     canonical_endpoint_fragments = (
@@ -764,9 +762,7 @@ def _format_lblrtm_geometry_records(
     try:
         canonical_h1, canonical_h2 = (float(fragment) for fragment in canonical_endpoint_fragments)
     except ValueError as exc:
-        raise LblrtmInputError(
-            "path endpoints cannot be represented as canonical F10.3 values"
-        ) from exc
+        raise LblrtmInputError("path endpoints cannot be written as F10.3 values") from exc
     if canonical_h1 == 0.0:
         canonical_h1 = 0.0
     if canonical_h2 == 0.0:
@@ -779,11 +775,9 @@ def _format_lblrtm_geometry_records(
         canonical_profile_altitudes[0] <= canonical_h1 <= canonical_profile_altitudes[-1]
         and canonical_profile_altitudes[0] <= canonical_h2 <= canonical_profile_altitudes[-1]
     ):
-        raise LblrtmInputError(
-            "canonical F10.3 path endpoints must lie within the canonical profile grid"
-        )
+        raise LblrtmInputError("the path endpoints (F10.3) must lie within the profile altitudes")
     if canonical_h2 <= canonical_h1:
-        raise LblrtmInputError("F10.3 precision collapses the canonical H1-to-H2 path")
+        raise LblrtmInputError("at F10.3 precision the H1-to-H2 path has zero length")
 
     formatted_geometry = tuple(
         f"{value:10.4f}"
@@ -804,7 +798,7 @@ def _format_lblrtm_geometry_records(
     except ValueError as exc:
         raise LblrtmInputError("path geometry cannot be represented in record 3.2") from exc
     if displayed_h1 != canonical_h1 or displayed_h2 != canonical_h2 or displayed_h2 <= displayed_h1:
-        raise LblrtmInputError("record 3.2 does not preserve the canonical F10.3 H1-to-H2 path")
+        raise LblrtmInputError("record 3.2 does not reproduce the F10.3 H1-to-H2 path")
     if not 0.0 <= parsed_angle < 90.0:
         raise LblrtmInputError("record 3.2 precision produces an invalid zenith angle")
 

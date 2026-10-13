@@ -1,8 +1,8 @@
 """``summary.csv``: one row per (exposure, order) of a run.
 
 Fitted orders carry the fit parameters and the reduced chi-square; skipped orders
-carry only their status. ``wave_shift`` is the JSON list of wavelength-offset
-coefficients [km/s], empty when no offset was fitted. ``converged`` (``true`` /
+carry only their status. ``wavesol_coeffs`` is the JSON list of wavelength-solution
+correction coefficients [km/s], empty when no correction was fitted. ``converged`` (``true`` /
 ``false``) and ``n_eval`` are the optimiser's outcome (in a joint fit, the joint
 fit's); both are empty for orders that were not fitted.
 """
@@ -20,7 +20,7 @@ SUMMARY_COLUMNS = (
     "exposure", "order", "wave_lo", "wave_hi", "time_utc", "molecules", "relcol", "resolution",
     "chi2_reduced", "dof_mask_removed", "chi2_reduced_order", "dof_mask_removed_order",
     "chi2_reduced_joint", "dof_mask_removed_joint", "masked_frac", "lsf_shape", "status",
-    "elapsed_s", "wave_shift", "converged", "n_eval",
+    "elapsed_s", "wavesol_coeffs", "converged", "n_eval",
 )  # fmt: skip
 
 
@@ -46,7 +46,7 @@ def _outcome(result: Any) -> list[str]:
 
 
 def shift_cell(values: Any) -> str:
-    """``wave_shift`` cell: JSON list of coefficients [km/s], ``""`` without an offset."""
+    """``wavesol_coeffs`` cell: JSON list of coefficients [km/s], ``""`` without a correction."""
     if values is None:
         return ""
     return json.dumps([round(float(v), 5) for v in values])

@@ -56,8 +56,8 @@ class OrderFitResult:
     """LSF shape (``None`` for ``gauss``)."""
     lsf_shape_err: float | None = None
     wave_shift: tuple[float, ...] | None = None
-    """Chebyshev coefficients [km/s] of the telluric-model velocity offset (``None``:
-    no offset; :mod:`gtellcorr.fitting.wave_shift`)."""
+    """Chebyshev coefficients [km/s] of the wavelength-solution correction (``None``:
+    no correction; :mod:`gtellcorr.fitting.wave_shift`)."""
     wave_shift_err: tuple[float, ...] | None = None
     stellar_treatment: str = "mask"
     converged: bool | None = None
@@ -88,14 +88,14 @@ class OrderFitResult:
 
     @property
     def wave_fit_corr(self) -> Array | None:
-        """``wave_fit`` anchored on the telluric lines (``None`` without an offset)."""
+        """``wave_fit`` corrected on the telluric lines (``None`` without a correction)."""
         if self.wave_shift is None:
             return None
         return corrected_wavelengths(self.wave_fit, self.wave_input, self.wave_shift)[0]
 
     @property
     def wave_input_corr(self) -> Array | None:
-        """``wave_input`` anchored on the telluric lines (``None`` without an offset)."""
+        """``wave_input`` corrected on the telluric lines (``None`` without a correction)."""
         if self.wave_shift is None:
             return None
         return corrected_wavelengths(self.wave_fit, self.wave_input, self.wave_shift)[1]

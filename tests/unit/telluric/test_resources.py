@@ -43,7 +43,7 @@ def test_status_never_raises(tmp_path: Path) -> None:
     assert report["lblrtm_bundle"]["ok"] is False
     assert "not found" in report["lblrtm_bundle"]["problem"]
     assert report["mipas"]["ok"] is False and report["celestrak"]["ok"] is False
-    assert "no CelesTrak snapshot recorded" in report["celestrak"]["problem"]
+    assert "no CelesTrak table recorded" in report["celestrak"]["problem"]
 
 
 def test_status_checks_celestrak_as_a_run_does(tmp_path: Path) -> None:

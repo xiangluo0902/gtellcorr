@@ -1,7 +1,7 @@
 """Strict reader for the official RFM MIPAS mid-latitude-night atmosphere.
 
 The numerical reference file is an external, caller-owned resource.  This
-module contains only the parser and the gtellcorr profile contract; it does not
+module contains only the parser and gtellcorr's profile format; it does not
 bundle or reconstruct any third-party atmospheric values.
 """
 
@@ -52,7 +52,7 @@ def load_rfm_mipas_reference(
     expected_sha256: str,
     source_url: str,
 ) -> dict:
-    """Load one hash-pinned official RFM ``ngt.atm`` reference.
+    """Load the official RFM ``ngt.atm`` reference, checked against its SHA-256.
 
     Parameters
     ----------
@@ -63,14 +63,14 @@ def load_rfm_mipas_reference(
         SHA-256 of the exact official file bytes.  It is mandatory so a caller
         cannot silently substitute a different climatology.
     source_url
-        Persistent source URL recorded in the returned provenance.
+        Persistent source URL recorded with the returned profile.
 
     Returns
     -------
     dict
         Float64 arrays named with gtellcorr units plus
-        ``reference_provenance``.  The altitude array is validated against,
-        but is not used to create, the project-owned canonical grid.
+        ``reference_provenance`` (where the file came from).  The altitude array
+        is checked against gtellcorr's fixed grid but not used to build it.
     """
 
     if not isinstance(expected_sha256, str) or _SHA256_PATTERN.fullmatch(expected_sha256) is None:

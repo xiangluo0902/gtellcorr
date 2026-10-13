@@ -114,10 +114,10 @@ class _AtmosphereView:
 
 
 def _require(value: Any, what: str) -> Any:
-    """*value*, or :class:`ConfigError` if the snapshot is missing."""
+    """*value*, or :class:`ConfigError` if the table is missing."""
     if value is None:
         raise ConfigError(
-            f"no {what} space-weather snapshot is available; run "
+            f"no {what} space-weather table is available; run "
             "'gtellcorr resources fetch celestrak' (needed for upper_source = 'msis00')"
         )
     return value

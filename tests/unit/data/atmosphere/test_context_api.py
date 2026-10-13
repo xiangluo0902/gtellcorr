@@ -92,7 +92,7 @@ def test_context_is_per_thread(tmp_path: Path) -> None:
 
 def test_celestrak_needed_only_for_msis(tmp_path: Path) -> None:
     s = _settings(tmp_path)
-    with pytest.raises(ResourceError, match="no CelesTrak snapshot recorded"):
+    with pytest.raises(ResourceError, match="no CelesTrak table recorded"):
         atmosphere_context(AtmosphereConfig(), s)
     ctx = atmosphere_context(AtmosphereConfig(upper_source="mipas"), s)
     with _context.using(ctx), pytest.raises(ConfigError, match="CelesTrak space-weather"):

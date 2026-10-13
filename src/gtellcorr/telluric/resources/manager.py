@@ -11,7 +11,8 @@ Layout below ``Settings.resource_root`` (all locations can be overridden)::
 
 The numerical validation itself is
 :func:`gtellcorr.telluric.lblrtm.validate_lblrtm_resource_bundle`; this module adds
-the local-manifest / scientific-contract split (see :mod:`.contract`).
+the check against the LBLRTM setup description shipped with gtellcorr (see
+:mod:`.setup`).
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from gtellcorr.telluric.lblrtm import (
     validate_lblrtm_resource_bundle,
 )
 from gtellcorr.telluric.lblrtm.lblrtm_errors import LblrtmError
-from gtellcorr.telluric.resources.contract import check_contract, load_contract
+from gtellcorr.telluric.resources.setup import check_setup, load_setup
 
 __all__ = [
     "LOCAL_MANIFEST",
@@ -63,9 +64,15 @@ class VerifiedResources:
     resources: ResolvedLblrtmResourceFiles
     """Resolved files, as consumed by :mod:`gtellcorr.telluric.lblrtm`."""
     local_fingerprint: str
-    contract_id: str
+    setup_id: str
+    """Name of the LBLRTM setup the bundle matches."""
     description: str
     """Program and data versions, in words."""
+
+    @property
+    def contract_id(self) -> str:
+        """Name used by gtellcorr 0.9.0 for :attr:`setup_id` (removed in 1.0)."""
+        return self.setup_id
 
 
 def _settings(settings: Settings | None) -> Settings:
@@ -86,7 +93,7 @@ def freeze(bundle: str | os.PathLike[str], *, force: bool = False) -> Path:
     """Measure *bundle* and write its local manifest; return the manifest path.
 
     Uses :mod:`._freeze` with the shipped double-precision manifest as template,
-    then checks the result against the scientific contract.
+    then checks the result against the LBLRTM setup description.
     """
     from gtellcorr.telluric.resources import _freeze
 
@@ -98,7 +105,7 @@ def freeze(bundle: str | os.PathLike[str], *, force: bool = False) -> Path:
         data = _freeze.freeze_manifest(root, _LBLRTM_PACKAGE / DEFAULT_MANIFEST_FILENAME)
     except (LblrtmError, LblrtmResourceError, OSError) as exc:
         raise ResourceError(f"cannot freeze {root}: {exc}") from exc
-    check_contract(data, load_contract())
+    check_setup(data, load_setup())
     _freeze._write_json_atomically(target, data, force=True)
     return target
 
@@ -106,7 +113,7 @@ def freeze(bundle: str | os.PathLike[str], *, force: bool = False) -> Path:
 def verify(
     settings: Settings | None = None, *, bundle: str | os.PathLike[str] | None = None
 ) -> VerifiedResources:
-    """Validate the configured bundle against its local manifest and the contract."""
+    """Check the configured bundle against its local manifest and the LBLRTM setup."""
     root = (
         Path(bundle).expanduser().resolve() if bundle is not None else _bundle(_settings(settings))
     )
@@ -121,10 +128,10 @@ def verify(
             f"{root} has no {LOCAL_MANIFEST} (the record of its file sizes and checksums); "
             "if the bundle was copied here, run 'gtellcorr resources freeze' once"
         )
-    contract = load_contract()
+    setup = load_setup()
     try:
         manifest = load_lblrtm_resource_manifest(manifest_path)
-        check_contract(manifest.data, contract)
+        check_setup(manifest.data, setup)
         resources = validate_lblrtm_resource_bundle(manifest, root)
     except ResourceError:
         raise
@@ -134,8 +141,8 @@ def verify(
         bundle=root,
         resources=resources,
         local_fingerprint=manifest.fingerprint,
-        contract_id=str(contract["contract_id"]),
-        description=str(contract["description"]),
+        setup_id=str(setup["setup_id"]),
+        description=str(setup["description"]),
     )
 
 
@@ -162,13 +169,12 @@ def status(settings: Settings | None = None) -> dict[str, Any]:
         report["lblrtm_bundle"].update(
             ok=True,
             fingerprint=verified.local_fingerprint,
-            contract=verified.contract_id,
+            setup=verified.setup_id,
             description=verified.description,
         )
     except ResourceError as exc:
         report["lblrtm_bundle"].update(ok=False, problem=str(exc))
-    contract = load_contract()
-    mipas = contract["atmosphere_references"]["rfm_mipas_midlatitude_night"]
+    mipas = load_setup()["atmosphere_references"]["rfm_mipas_midlatitude_night"]
     mipas_path = s.resource_root / "atmosphere" / mipas["file_name"]
     report["mipas"] = {
         "path": str(mipas_path),
@@ -236,9 +242,9 @@ def build(
     netcdf_prefix: str | os.PathLike[str] | None = None,
     keep_build_tree: bool = False,
 ) -> VerifiedResources:
-    """Compile LNFL + LBLRTM from the hash-pinned source archives and freeze the bundle.
+    """Compile LNFL + LBLRTM from the source archives and record the bundle.
 
-    The archives are checked against the contract hashes by the builder. Without
+    The builder checks the archives against their SHA-256 in the setup description. Without
     *netcdf_prefix*, an isolated conda-forge toolchain is created (once) under
     ``<resource_root>/runtime/lblrtm-toolchain``. The build runs in a subprocess
     with the toolchain first on ``PATH``.

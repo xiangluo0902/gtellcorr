@@ -9,7 +9,7 @@ A run goes through three stages, each of which can also be called on its own:
    the time of observation, the spectral orders, the single-order or joint-order
    fit, the correction of every output order and the result FITS file;
 3. :meth:`Pipeline.run` - every exposure (an earlier result is reused when its
-   provenance matches), then ``summary.csv``, the optional telluric PCA, the
+   inputs match), then ``summary.csv``, the optional telluric PCA, the
    figures and ``run_manifest.json``.
 
 ``gtc.run(observation, config)`` runs all three. Results are written below the
@@ -84,7 +84,7 @@ class Progress:
 def config_hash(config: FitConfig) -> str:
     """SHA-256 of the fit configuration's parameter values.
 
-    The canonical TOML is written without comments or header, so documentation changes
+    The configuration is written as TOML without comments or header, so documentation changes
     leave the hash, and hence product reuse, unaffected.
     """
     from gtellcorr.config.toml_format import dumps_group
@@ -140,7 +140,7 @@ class Pipeline:
         ``settings`` and the configuration on first use).
     celestrak
         Space-weather reference file for the upper-atmosphere model (default: the
-        snapshot in ``<resource_root>/atmosphere``, installed by
+        table in ``<resource_root>/atmosphere``, installed by
         ``gtellcorr resources fetch``).
     rv_seed
         Seed of the MCMC sampler of the RV measurement, so repeated runs give
@@ -376,7 +376,7 @@ class Pipeline:
         )
 
     def _shift_source(self, fitted: str) -> str:
-        """Where an order's wavelength offset came from (``not_fitted`` when off)."""
+        """Where an order's wavelength-solution correction came from (``not_fitted`` when off)."""
         return fitted if self.config.wavelength.fit else "not_fitted"
 
     def fit_exposure(
@@ -477,7 +477,7 @@ class Pipeline:
                 "lsf_shape_value_source": "fitted_order"
                 if self.config.lsf.fit_shape
                 else "fitting_config",
-                "wave_shift_value_source": self._shift_source("fitted_order"),
+                "wavesol_source": self._shift_source("fitted_order"),
             }
             rows.append((True, single_row(name, result, t_iso, elapsed, fitted=True)))
         return results, rows, metadata, {"relcol_fit_mode": "single_order"}
@@ -493,9 +493,9 @@ class Pipeline:
         """Fit the molecule columns jointly over several orders, then correct all orders.
 
         The fit orders (configured, or chosen by their molecular bands) share one set
-        of molecule columns; resolving power, LSF shape and wavelength offset stay
+        of molecule columns; resolving power, LSF shape and wavelength correction stay
         per order. Every other readable order is then corrected with the shared
-        columns and the median R, shape and offset of the fitted orders. Orders
+        columns and the median R, shape and wavelength correction of the fitted orders. Orders
         without usable wavelengths are kept as all-NaN placeholders, so the result
         file always holds every order of the exposure.
         """
@@ -572,7 +572,7 @@ class Pipeline:
                     "used_in_fit": False,
                     "resolution_value_source": "not_applicable",
                     "lsf_shape_value_source": "not_applicable",
-                    "wave_shift_value_source": "not_applicable",
+                    "wavesol_source": "not_applicable",
                 }
                 continue
             if order in fitted:
@@ -581,7 +581,7 @@ class Pipeline:
                     "used_in_fit": True,
                     "resolution_value_source": self._r_source("fitted_order"),
                     "lsf_shape_value_source": "fitted_order" if fit_shape else "fitting_config",
-                    "wave_shift_value_source": self._shift_source("fitted_order"),
+                    "wavesol_source": self._shift_source("fitted_order"),
                 }
                 continue
             s = loaded.spectra[order]
@@ -606,7 +606,7 @@ class Pipeline:
                 "used_in_fit": False,
                 "resolution_value_source": self._r_source("median_fitted_orders"),
                 "lsf_shape_value_source": "median_fitted_orders" if fit_shape else "fitting_config",
-                "wave_shift_value_source": self._shift_source("median_fitted_orders"),
+                "wavesol_source": self._shift_source("median_fitted_orders"),
             }
         rows = [
             (True, joint_row(name, r, exposure.time_utc.isoformat(), elapsed))
@@ -646,7 +646,7 @@ class Pipeline:
     ) -> OrderFitResult:
         """Correct an output order with the exposure's shared relcols (not fitted).
 
-        R, LSF shape and wavelength offset: the medians of the fitted orders.
+        R, LSF shape and wavelength correction: the medians of the fitted orders.
         """
         from dataclasses import replace
 
@@ -755,7 +755,7 @@ class Pipeline:
             "config_sha256": self.config_hash,
             "lblrtm_bundle": str(model.resources.bundle),
             "lblrtm_local_fingerprint": model.resources.local_fingerprint,
-            "lblrtm_contract": model.resources.contract_id,
+            "lblrtm_setup": model.resources.setup_id,
             "lblrtm_timeout_s": f"{model.timeout_s:.8g}",
             "lblrtm_wave_margin_nm": f"{model.config.wave_margin_nm:.8g}",
             "tau_cache": str(model.tau_cache),
@@ -907,7 +907,7 @@ def _median(results: Sequence[OrderFitResult], attribute: str) -> float | None:
 
 
 def _median_shift(results: Sequence[OrderFitResult]) -> tuple[float, ...] | None:
-    """Coefficient-wise median of the fitted offsets (``None`` if none was fitted)."""
+    """Coefficient-wise median of the fitted wavelength corrections (``None`` if none)."""
     shifts = [r.wave_shift for r in results if r.wave_shift is not None]
     if not shifts:
         return None

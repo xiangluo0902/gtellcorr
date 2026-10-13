@@ -14,7 +14,6 @@ archives; ``_freeze`` measures an assembled bundle into its local manifest.
 
 from __future__ import annotations
 
-from gtellcorr.telluric.resources.contract import check_contract, load_contract, scientific_identity
 from gtellcorr.telluric.resources.manager import (
     LOCAL_MANIFEST,
     VerifiedResources,
@@ -25,15 +24,26 @@ from gtellcorr.telluric.resources.manager import (
     toolchain_packages,
     verify,
 )
+from gtellcorr.telluric.resources.setup import (
+    check_contract,
+    check_setup,
+    load_contract,
+    load_setup,
+    physics_fields,
+    scientific_identity,
+)
 
 __all__ = [
     "LOCAL_MANIFEST",
     "VerifiedResources",
     "build",
     "check_contract",
+    "check_setup",
     "describe",
     "freeze",
     "load_contract",
+    "load_setup",
+    "physics_fields",
     "scientific_identity",
     "status",
     "toolchain_packages",

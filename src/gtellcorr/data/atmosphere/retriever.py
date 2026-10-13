@@ -8,7 +8,7 @@ single climatological profile is fine to first order but biases line cores
 and wings on the few-percent level when the real atmosphere deviates
 (Smette+2015).  This module pulls a time-and-location specific profile
 from public meteorological archives and converts it into gtellcorr's
-``AtmosphereProfile`` contract, which :mod:`gtellcorr.data.atmosphere.full_profile`
+``AtmosphereProfile``, which :mod:`gtellcorr.data.atmosphere.full_profile`
 stitches with the upper atmosphere.
 
 Design
@@ -20,7 +20,7 @@ Design
   ``Pandas / NumPy`` parsing layer — no ``xarray`` / ``netCDF4`` / ``cfgrib``
   / ``eccodes`` dependency.  This is on purpose so it runs inside the
   project runtime without extra installs.
-- **Reproducible**: every fetch records full provenance (backend name,
+- **Reproducible**: every fetch records where the data came from (backend name,
   URL, grid point actually used, timestamp of retrieval, ECMWF/NCEP cycle
   time) inside the saved JSON.
 - **Offline-friendly**: :func:`load_manual_profile` reads a user-supplied ASCII

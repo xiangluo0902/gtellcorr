@@ -72,7 +72,7 @@ where = ["src"]
 gtellcorr = ["py.typed"]
 "gtellcorr.data.observation" = ["instruments/*.toml", "sites/*.csv"]
 "gtellcorr.telluric.lblrtm" = ["*.json", "third_party_notices/*.txt"]
-"gtellcorr.telluric.resources" = ["contracts/*.json"]
+"gtellcorr.telluric.resources" = ["setups/*.json"]
 
 # ---------------------------------------------------------------------------
 # pytest

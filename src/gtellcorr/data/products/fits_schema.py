@@ -6,16 +6,17 @@ One file per exposure holds:
   ``FLUX_CORRECTED``, ``ERR_CORRECTED``, ``CONTINUUM``, ``STELLAR_MODEL`` (float64,
   NaN-padded) and ``EXCLUSION`` (uint8, 1 = excluded, padding excluded), one row per
   order;
-* only when a wavelength offset was fitted: ``WAVE_FIT_CORR``
+* only when a wavelength-solution correction was fitted: ``WAVE_FIT_CORR``
   and ``WAVE_INPUT_CORR``, the same pixels' wavelengths anchored on the telluric lines
-  (``wave / (1 + v / c)``), the uncorrected grid for orders without an offset;
+  (``wave / (1 + v / c)``), the uncorrected grid for orders without a correction;
 * ``ORDER_SUMMARY`` (per-order parameters; ``row_index`` maps rows to orders),
   ``FIT_SUMMARY`` (exposure-level fit) and ``RUN_METADATA`` key/value tables;
 * optional cumulative PCA models ``tell_principal_model_###`` (``TPCA_N``, ``TPCA_MODE``).
 
-Primary-header cards record the provenance used to decide whether a product can be
-reused: ``GTC_VERS`` (package version), ``CFG_HASH`` (fit configuration),
-``RES_FP`` (LBLRTM resource fingerprint) and ``IN_HASH`` (input spectrum file).
+Primary-header cards record what a product was made from, which decides whether it
+can be reused: ``GTC_VERS`` (package version), ``CFG_HASH`` (fit configuration),
+``RES_FP`` (checksum of the LBLRTM bundle manifest) and ``IN_HASH`` (input spectrum
+file).
 """
 
 from __future__ import annotations
@@ -58,14 +59,14 @@ S2D_IMAGE_HDU_NAMES = (
     "ERR_CORRECTED", "CONTINUUM", "STELLAR_MODEL", "EXCLUSION",
 )  # fmt: skip
 _FLOAT_HDUS = tuple(n for n in S2D_IMAGE_HDU_NAMES if n != "EXCLUSION")
-#: Optional image HDUs, written only when a wavelength offset was fitted.
+#: Optional image HDUs, written only when a wavelength-solution correction was fitted.
 CORRECTED_WAVE_HDU_NAMES = ("WAVE_FIT_CORR", "WAVE_INPUT_CORR")
 EXPOSURE_FITS_PATTERNS = ("*_single_order_corrected.fits", "*_joint_corrected_all_orders.fits")
 
 #: ROWMAP card of every image HDU: image row i holds the order whose row_index is i.
 _ROWMAP = ("ORDER_SUMMARY.row_index", "order of each image row")
 
-#: Provenance header cards (name -> comment).
+#: Header cards recording what a result was made from (name -> comment).
 PROVENANCE_CARDS = {
     "GTC_VERS": "gtellcorr version",
     "CFG_HASH": "SHA-256 of the fit configuration",
@@ -109,7 +110,7 @@ def _flag(value: Any) -> str:
 
 
 def _coefficients(values: Any) -> str:
-    """JSON list of offset coefficients (``[]`` = no offset)."""
+    """JSON list of correction coefficients (``[]`` = no correction)."""
     return json.dumps([] if values is None else [float(v) for v in values])
 
 
@@ -187,9 +188,9 @@ def _summary_rows(
                 "masked_frac": (
                     float(np.asarray(r.exclusion, bool).mean()) if r.exclusion is not None else 0.0
                 ),
-                "wave_shift": _coefficients(getattr(r, "wave_shift", None)),
-                "wave_shift_err": _coefficients(getattr(r, "wave_shift_err", None)),
-                "wave_shift_value_source": str(meta.get("wave_shift_value_source", "not_fitted")),
+                "wavesol_coeffs": _coefficients(getattr(r, "wave_shift", None)),
+                "wavesol_coeffs_err": _coefficients(getattr(r, "wave_shift_err", None)),
+                "wavesol_source": str(meta.get("wavesol_source", "not_fitted")),
                 "converged": _flag(getattr(r, "converged", None)),
                 "n_eval": _int(getattr(r, "n_eval", None)),
             }
@@ -206,8 +207,8 @@ _TABLE_COLUMNS: tuple[tuple[str, str | None], ...] = (
     ("chi2_reduced", "D"), ("dof_mask_removed", "J"), ("chi2_reduced_order", "D"),
     ("dof_mask_removed_order", "J"), ("chi2_reduced_joint", "D"),
     ("dof_mask_removed_joint", "J"), ("masked_frac", "D"),
-    # wavelength-offset coefficients [km/s] as JSON (absent from older result files)
-    ("wave_shift", None), ("wave_shift_err", None), ("wave_shift_value_source", None),
+    # wavelength-solution correction coefficients [km/s] as JSON (absent from older results)
+    ("wavesol_coeffs", None), ("wavesol_coeffs_err", None), ("wavesol_source", None),
     # optimiser outcome: "true" / "false" / "" and evaluations, -1 if not fitted
     # (absent from older result files)
     ("converged", None), ("n_eval", "J"),
@@ -277,10 +278,10 @@ def _stack_images(
 def _corrected_wave_images(
     results: Sequence[Any], rows: Sequence[Mapping[str, Any]], n_pix: int
 ) -> dict[str, NDArray[Any]]:
-    """``WAVE_FIT_CORR`` / ``WAVE_INPUT_CORR``, or nothing when no order has an offset.
+    """``WAVE_FIT_CORR`` / ``WAVE_INPUT_CORR``, or nothing when no order has a correction.
 
     The result's ``wave_fit_corr`` / ``wave_input_corr`` are used where present; an
-    order without an offset keeps its uncorrected grid.
+    order without a correction keeps its uncorrected grid.
     """
     if all(getattr(r, "wave_fit_corr", None) is None for r in results):
         return {}
@@ -385,7 +386,7 @@ def write_exposure_fits(
     """Write one exposure's results.
 
     ``correction_mode`` is ``single_order`` or ``joint_orders``; ``provenance`` fills
-    the :data:`PROVENANCE_CARDS`.
+    the :data:`PROVENANCE_CARDS` (what the result was made from).
     """
     if correction_mode not in ("single_order", "joint_orders"):
         raise ValueError(f"unsupported correction_mode: {correction_mode!r}")
@@ -434,7 +435,7 @@ def write_exposure_fits(
 
 
 def read_provenance(path: str | os.PathLike[str]) -> dict[str, str]:
-    """The provenance cards present in a result's primary header."""
+    """The cards of :data:`PROVENANCE_CARDS` present in a result's primary header."""
     header = fits.getheader(path)
     return {k: str(header[k]) for k in PROVENANCE_CARDS if k in header}
 
@@ -566,16 +567,27 @@ def _summary_fields(row: Any) -> dict[str, Any]:
     }
 
 
+#: ``ORDER_SUMMARY`` columns of the wavelength-solution correction: current names, then
+#: the names written by gtellcorr 0.9.0.
+_WAVESOL_COLUMNS = (
+    ("wavesol_coeffs", "wavesol_coeffs_err", "wavesol_source"),
+    ("wave_shift", "wave_shift_err", "wave_shift_value_source"),
+)
+
+
 def _shift_fields(row: Any) -> dict[str, Any]:
-    """Wavelength-offset fields (``None`` / ``not_fitted`` in older result files)."""
-    if "wave_shift" not in (row.array.names or []):
-        return {"wave_shift": None, "wave_shift_err": None, "wave_shift_value_source": "not_fitted"}
-    shift = _json_cell(row["wave_shift"], [])
-    err = _json_cell(row["wave_shift_err"], [])
+    """Wavelength-solution correction fields (``None`` / ``not_fitted`` in older results)."""
+    names = row.array.names or []
+    columns = next((c for c in _WAVESOL_COLUMNS if c[0] in names), None)
+    if columns is None:
+        return {"wavesol_coeffs": None, "wavesol_coeffs_err": None, "wavesol_source": "not_fitted"}
+    coeffs, errors, source = columns
+    shift = _json_cell(row[coeffs], [])
+    err = _json_cell(row[errors], [])
     return {
-        "wave_shift": tuple(shift) if shift else None,
-        "wave_shift_err": tuple(err) if err else None,
-        "wave_shift_value_source": str(row["wave_shift_value_source"]).strip(),
+        "wavesol_coeffs": tuple(shift) if shift else None,
+        "wavesol_coeffs_err": tuple(err) if err else None,
+        "wavesol_source": str(row[source]).strip(),
     }
 
 
@@ -649,7 +661,7 @@ def load_exposure_order(path: str | os.PathLike[str], order: int | None = None) 
             out["n_pca"] = n_pca
             out["pca_mode"] = str(hdr.get(FITS_PCA_MODE_KEY, "") or "")
         out.update(_summary_fields(row))
-        # present only when a wavelength offset was fitted
+        # present only when a wavelength-solution correction was fitted
         out["wave_fit_corr"] = _row_values(hdul, "WAVE_FIT_CORR", index, n, optional=True)
         out["wave_input_corr"] = _row_values(hdul, "WAVE_INPUT_CORR", index, n, optional=True)
     return out

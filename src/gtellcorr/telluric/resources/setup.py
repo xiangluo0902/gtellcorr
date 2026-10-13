@@ -1,18 +1,18 @@
-"""Scientific identity of an LBLRTM resource bundle (two-level manifests).
+"""The LBLRTM setup a bundle must have, checked in two steps.
 
 A bundle is described by two documents:
 
 * the **local manifest** (``<bundle>/gtellcorr_manifest.json``), written by
   :func:`gtellcorr.telluric.resources.freeze` on the machine that built the
-  bundle: exact bytes of every file, including host-specific executables;
-* the **scientific contract** shipped with gtellcorr (``contracts/*.json``):
-  only what defines the physics — source archives, the compiled line database
-  (TAPE3 scientific and semantic hashes), the MT_CKD continuum data, the LNFL
-  control input, the scientific contract (line counts, wavenumber bounds) and
-  the arithmetic precision / TAPE12 layout.
+  bundle: sizes and checksums of every file, including host-specific executables;
+* the **LBLRTM setup description** shipped with gtellcorr (``setups/*.json``):
+  only what decides the physics — source archives, the compiled line database
+  (TAPE3 checksums without the LNFL date and title), the MT_CKD continuum data,
+  the LNFL control input, line counts and wavenumber limits, and the arithmetic
+  precision / TAPE12 layout.
 
-A bundle is accepted when its files match its local manifest **and** the local
-manifest's scientific identity equals the shipped contract. Rebuilding on another
+A bundle is accepted when its files match its local manifest **and** the physics
+part of the manifest equals the shipped setup description. Rebuilding on another
 machine or with another compiler therefore needs no change to gtellcorr.
 """
 
@@ -25,13 +25,22 @@ from typing import Any
 
 from gtellcorr.errors import ResourceError
 
-__all__ = ["DEFAULT_CONTRACT", "check_contract", "load_contract", "scientific_identity"]
+__all__ = [
+    "DEFAULT_CONTRACT",
+    "DEFAULT_SETUP",
+    "check_contract",
+    "check_setup",
+    "load_contract",
+    "load_setup",
+    "physics_fields",
+    "scientific_identity",
+]
 
-DEFAULT_CONTRACT = "lblrtm_v12_17_aer_v3_9_double.json"
+DEFAULT_SETUP = "lblrtm_v12_17_aer_v3_9_double.json"
 
 
-def scientific_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    """The physics-defining subset of a (schema v2) resource manifest."""
+def physics_fields(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """The part of a (schema v2) resource manifest that decides the physics."""
     sources = manifest["sources"]
     products = manifest["products"]
     build = manifest["build_contract"]
@@ -58,10 +67,10 @@ def scientific_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def load_contract(name: str = DEFAULT_CONTRACT) -> dict[str, Any]:
-    """A contract shipped with gtellcorr (``contracts/<name>``)."""
+def load_setup(name: str = DEFAULT_SETUP) -> dict[str, Any]:
+    """An LBLRTM setup description shipped with gtellcorr (``setups/<name>``)."""
     try:
-        text = files("gtellcorr.telluric.resources").joinpath("contracts", name).read_text("utf-8")
+        text = files("gtellcorr.telluric.resources").joinpath("setups", name).read_text("utf-8")
     except FileNotFoundError as exc:
         raise ResourceError(f"unknown LBLRTM setup description {name!r}") from exc
     data: dict[str, Any] = json.loads(text)
@@ -78,11 +87,18 @@ def _differences(a: Any, b: Any, path: str = "") -> list[str]:
     return [] if a == b else [path or "<root>"]
 
 
-def check_contract(manifest: Mapping[str, Any], contract: Mapping[str, Any]) -> None:
-    """Raise :class:`ResourceError` if *manifest* does not fulfil *contract*."""
-    diffs = _differences(scientific_identity(manifest), contract["identity"])
+def check_setup(manifest: Mapping[str, Any], setup: Mapping[str, Any]) -> None:
+    """Raise :class:`ResourceError` if *manifest* does not have the LBLRTM *setup*."""
+    diffs = _differences(physics_fields(manifest), setup["physics"])
     if diffs:
         raise ResourceError(
             "the LBLRTM bundle does not match the supported LBLRTM setup; it differs in: "
             f"{', '.join(diffs[:8])}{' …' if len(diffs) > 8 else ''}"
         )
+
+
+# names used by gtellcorr 0.9.0, removed in 1.0
+DEFAULT_CONTRACT = DEFAULT_SETUP
+scientific_identity = physics_fields
+load_contract = load_setup
+check_contract = check_setup

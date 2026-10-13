@@ -1,4 +1,4 @@
-"""Immutable value objects shared by the direct LBLRTM backend.
+"""Read-only value objects shared by the LBLRTM backend.
 
 This module contains only the value objects of the direct radiative-transfer
 path: molecules, spectral window, line of sight, run configuration and the
@@ -58,7 +58,7 @@ def _coerce_finite_float(value: Any, *, field_name: str) -> float:
 
 
 def _freeze_metadata_value(value: Any, *, field_name: str) -> Any:
-    """Recursively freeze deterministic JSON-like spectrum metadata."""
+    """Make JSON-like spectrum metadata read-only, recursively."""
 
     import numpy as np
 
@@ -88,7 +88,7 @@ def _freeze_metadata_value(value: Any, *, field_name: str) -> Any:
         if not math.isfinite(value):
             raise LblrtmInputError(f"{field_name} must be finite")
         return value
-    raise LblrtmInputError(f"{field_name} must contain only deterministic JSON-like values")
+    raise LblrtmInputError(f"{field_name} must contain only JSON-like values")
 
 
 def _immutable_float64_array(
@@ -96,7 +96,7 @@ def _immutable_float64_array(
     *,
     field_name: str,
 ) -> _NumpyArray:
-    """Return a one-dimensional float64 copy backed by immutable bytes."""
+    """Return a read-only one-dimensional float64 copy."""
 
     import numpy as np
 
@@ -111,7 +111,7 @@ def _immutable_float64_array(
 
 @dataclass(frozen=True, slots=True)
 class LblrtmMoleculeDefinition:
-    """One molecule in the LBLRTM user-atmosphere runtime contract."""
+    """One molecule of the user atmosphere passed to LBLRTM."""
 
     molecule_id: int
     canonical_name: str
@@ -222,7 +222,7 @@ class LblrtmLineOfSight:
 
 @dataclass(frozen=True, slots=True)
 class LblrtmRunConfiguration:
-    """Deterministic scientific controls used to render one LBLRTM TAPE5."""
+    """The scientific settings written into one LBLRTM TAPE5."""
 
     spectral_window: LblrtmSpectralWindow
     line_of_sight: LblrtmLineOfSight
@@ -260,7 +260,7 @@ class LblrtmRunConfiguration:
 
 @dataclass(frozen=True, slots=True)
 class LblrtmRunResult:
-    """Auditable artifacts and diagnostics from one successful LBLRTM run."""
+    """Files and diagnostics kept from one successful LBLRTM run."""
 
     tape12_bytes: bytes
     tape6_text: str
@@ -326,11 +326,10 @@ class LblrtmRunResult:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class LblrtmTransmissionSpectrum:
-    """Immutable unconvolved transmission on an increasing nm grid.
+    """Unconvolved transmission on an increasing nm grid (read-only).
 
     Transmission values outside ``[0, 1.00001]`` are rejected, never clipped.
-    Metadata is recursively frozen and limited to deterministic JSON-like
-    values.
+    Metadata is read-only and limited to JSON-like values.
     """
 
     wavelength_nm: _NumpyArray
@@ -404,7 +403,7 @@ class LblrtmTransmissionSpectrum:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class LblrtmOpticalDepthSpectrum:
-    """Immutable unconvolved sight-line optical depth on an increasing nm grid.
+    """Unconvolved sight-line optical depth on an increasing nm grid (read-only).
 
     Values are the finite IEMIT=0 TAPE12 output.  Finite negative values are
     retained unchanged for explicit numerical diagnosis; NaN and infinity are

@@ -13,7 +13,7 @@ Molecule selection per order:
 * ``molecule_selection.exclude`` removes a molecule with the highest priority.
 
 Anchor orders of a molecule: ``Molecule.anchor_orders`` if set, otherwise the
-instrument definition's ``anchor_orders``; ``()`` means "no pinned orders".
+instrument definition's ``anchor_orders``; ``()`` means "no assigned orders".
 """
 
 from __future__ import annotations
@@ -81,15 +81,15 @@ class FitSpec:
     order: int | None = None
     """Echelle order (labelling only)."""
     fit_wave_shift: bool = False
-    """Fit the telluric-model wavelength offset (:class:`~gtellcorr.fitting.Wavelength`)."""
+    """Fit the wavelength-solution correction (:class:`~gtellcorr.fitting.Wavelength`)."""
     wave_shift_degree: int = 0
-    """Chebyshev degree of the offset velocity across the order."""
+    """Chebyshev degree of the correction velocity across the order."""
     wave_shift_scope: str = "order"
-    """``order`` (per-order offset) or ``exposure`` (shared in joint fits)."""
+    """``order`` (per-order correction) or ``exposure`` (shared in joint fits)."""
     wave_shift_bounds: tuple[float, float] = (-1.0, 1.0)
     """Bounds of each Chebyshev coefficient [km/s]."""
     wave_shift: tuple[float, ...] | None = None
-    """Fixed offset coefficients [km/s] when not fitted (``None`` = no offset)."""
+    """Fixed correction coefficients [km/s] when not fitted (``None`` = no correction)."""
 
     def lsf_grid(self) -> tuple[float, float]:
         """``(grid_resolution, support_resolution)`` of the fixed-grid convolution.
@@ -110,7 +110,7 @@ def _overlaps(bands_nm: Sequence[tuple[float, float]], lo: float, hi: float) -> 
 
 
 def anchor_orders(config: FitConfig, instrument: InstrumentSpec) -> dict[str, tuple[int, ...]]:
-    """Pinned fit orders per molecule (configuration first, then the instrument)."""
+    """Fit orders assigned to each molecule (configuration first, then the instrument)."""
     pins: dict[str, tuple[int, ...]] = {}
     for name in ENGINE_MOLECULES:
         own = config.molecules[name].anchor_orders
@@ -192,7 +192,7 @@ def select_fit_orders_for_molecules(
             available = [o for o in pinned if o in order_wave_ranges_nm]
             if not available:
                 raise DataError(
-                    f"{instrument.name}: fit molecule {molecule!r} is pinned to orders "
+                    f"{instrument.name}: fit molecule {molecule!r} is assigned to orders "
                     f"{list(pinned)}, but none are available in the data. Available orders: "
                     f"{sorted(int(o) for o in order_wave_ranges_nm)}"
                 )

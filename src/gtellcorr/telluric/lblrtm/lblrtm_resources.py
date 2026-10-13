@@ -1,4 +1,4 @@
-"""Load, resolve, fingerprint, and validate direct LBLRTM resource bundles.
+"""Load, locate, checksum and check LBLRTM resource bundles.
 
 The resource manifest records the
 exact LNFL/LBLRTM inputs and products needed by gtellcorr and validates every
@@ -43,7 +43,7 @@ _BUNDLE_VALIDATOR_ID: Final = "gtellcorr.validate_lblrtm_resource_bundle/v2"
 _VALIDATED_RESOURCE_BUNDLE_TOKEN: Final = object()
 _SHA256_PATTERN: Final = re.compile(r"^[0-9a-f]{64}$")
 _SIZE_BYTES_PATTERN: Final = re.compile(r"^(?:0|[1-9][0-9]*)$")
-# Pinned AER LBLRTM v12.17 README.md lines 214 and 222 require the
+# The AER LBLRTM v12.17 README.md (lines 214 and 222) requires the
 # LNFL/TAPE3 interval to extend at least 25 cm-1 beyond both ends of every
 # LBLRTM calculation interval.
 _LBLRTM_REQUIRED_TAPE3_MARGIN_CM1: Final[float] = 25.0
@@ -82,7 +82,7 @@ _ALLOWED_TOP_LEVEL_FIELDS: Final = frozenset(
         "validation",
     }
 )
-#: Manifest fields that enter the resource fingerprint (see
+#: Manifest fields that enter the manifest checksum (see
 #: :func:`compute_lblrtm_resource_fingerprint`).
 _FINGERPRINT_FIELDS: Final = (
     "schema_version",
@@ -123,7 +123,7 @@ _TAPE12_ABI_EVIDENCE_KEYS: Final = (
 
 @dataclass(frozen=True, slots=True)
 class Tape12AbiContract:
-    """Immutable binary-layout contract for an LBLRTM TAPE12 product."""
+    """Binary layout of an LBLRTM TAPE12 file (read-only)."""
 
     byte_order: str
     record_marker_bytes: int
@@ -194,7 +194,7 @@ def _tape12_abi_from_manifest_data(
 def _tape12_abi_from_evidence(
     evidence: Mapping[str, str],
 ) -> Tape12AbiContract:
-    """Reconstruct an ABI only from complete-validator evidence."""
+    """Rebuild the TAPE12 layout from the result of the full bundle check only."""
 
     present_keys = {key for key in _TAPE12_ABI_EVIDENCE_KEYS if key in evidence}
     if present_keys != set(_TAPE12_ABI_EVIDENCE_KEYS):
@@ -219,7 +219,7 @@ def _tape12_abi_from_evidence(
 def _has_complete_runtime_resource_evidence(
     evidence: Mapping[str, str],
 ) -> bool:
-    """Return whether runtime identities and their spectral support are frozen."""
+    """Return whether the runtime file checksums and wavenumber limits are recorded."""
 
     try:
         tape12_abi = _tape12_abi_from_evidence(evidence)
@@ -283,7 +283,7 @@ def _has_complete_runtime_resource_evidence(
 def _runtime_resource_validation_evidence(
     manifest_data: Mapping[str, Any],
 ) -> dict[str, str]:
-    """Copy validated runtime identities and support into immutable evidence."""
+    """Copy the checked runtime file checksums and wavenumber limits into a read-only record."""
 
     products = manifest_data["products"]
     tape12_abi = _tape12_abi_from_manifest_data(manifest_data)
@@ -319,7 +319,7 @@ def _runtime_resource_validation_evidence(
 
 @dataclass(frozen=True, slots=True)
 class LblrtmResourceManifest:
-    """Validated JSON manifest and its stable scientific fingerprint."""
+    """Checked JSON manifest and the checksum of its physics part."""
 
     path: Path
     _serialized_data: str
@@ -329,16 +329,16 @@ class LblrtmResourceManifest:
 
     @property
     def data(self) -> Mapping[str, Any]:
-        """Return a defensive copy so the frozen fingerprint cannot go stale."""
+        """Return a copy, so that changing it cannot invalidate the recorded checksum."""
 
         value = json.loads(self._serialized_data)
-        if not isinstance(value, Mapping):  # pragma: no cover - constructor invariant
+        if not isinstance(value, Mapping):  # pragma: no cover - checked by the constructor
             raise AssertionError("internal error: the manifest did not serialize to a JSON object")
         return value
 
     @property
     def resource_set_id(self) -> str:
-        """Return the human-readable immutable resource-set identifier."""
+        """Return the human-readable name of the resource set."""
 
         return self._resource_set_id
 
@@ -350,7 +350,7 @@ class LblrtmResourceManifest:
 
     @property
     def tape12_abi(self) -> Tape12AbiContract:
-        """Return the immutable TAPE12 ABI declared by this manifest."""
+        """Return the TAPE12 binary layout declared by this manifest."""
 
         return _tape12_abi_from_manifest_data(self.data)
 
@@ -440,18 +440,18 @@ class ResolvedLblrtmResourceFiles:
         return self
 
     def require_validated_calculation_bounds_cm1(self) -> tuple[float, float]:
-        """Return safe LBLRTM bounds bound to complete-validator evidence.
+        """Return the wavenumber limits LBLRTM can be run within, from the full bundle check.
 
-        The complete validator first cross-checks the LNFL-requested interval
-        against the manifest, control files, build recipe, and TAPE3 metadata,
-        then removes the 25 cm-1 line margin required at each calculation
-        boundary by the pinned AER LBLRTM v12.17 README.  These are therefore
+        The full check first compares the LNFL-requested interval with the
+        manifest, control files, build recipe and TAPE3 metadata, then removes the
+        25 cm-1 line margin that the AER LBLRTM v12.17 README requires at each end
+        of a calculation.  These are therefore
         narrower than the nominal LNFL/TAPE3 interval.
         """
 
         self.require_fully_validated()
         evidence = self.validation_evidence
-        if evidence is None:  # pragma: no cover - require_fully_validated invariant
+        if evidence is None:  # pragma: no cover - set by require_fully_validated
             raise LblrtmResourceIntegrityError("internal error: the bundle check result is missing")
         try:
             minimum_wavenumber = float(evidence["scientific_contract.safe_calculation_vmin_cm1"])
@@ -472,11 +472,11 @@ class ResolvedLblrtmResourceFiles:
         return minimum_wavenumber, maximum_wavenumber
 
     def require_validated_tape12_abi(self) -> Tape12AbiContract:
-        """Return the TAPE12 ABI bound to complete-validator evidence."""
+        """Return the TAPE12 binary layout recorded by the full bundle check."""
 
         self.require_fully_validated()
         evidence = self.validation_evidence
-        if evidence is None:  # pragma: no cover - require_fully_validated invariant
+        if evidence is None:  # pragma: no cover - set by require_fully_validated
             raise LblrtmResourceIntegrityError("internal error: the bundle check result is missing")
         return _tape12_abi_from_evidence(evidence)
 
@@ -500,7 +500,7 @@ class LnflTape5Summary:
 
 @dataclass(frozen=True, slots=True)
 class LnflTape6Summary:
-    """Selection and line-statistics evidence emitted by LNFL."""
+    """Molecule selection and line counts reported by LNFL."""
 
     molecule_selection_mask: str
     reported_slot_count: int
@@ -647,7 +647,7 @@ def _validate_manifest_tape12_contract(
         raise LblrtmManifestError(
             f"build_contract.tape12_abi is inconsistent with lblrtm_precision={lblrtm_precision!r}"
         )
-    # schema-1 field names, still accepted if they agree with the v2 contract
+    # schema-1 field names, still accepted if they agree with the v2 fields
     legacy_aliases = {
         "precision": lblrtm_precision,
         "byte_order": tape12_abi.byte_order,
@@ -696,11 +696,11 @@ def _validate_manifest_tape12_contract(
 
 
 def _canonical_manifest_payload(data: Mapping[str, Any]) -> bytes:
-    """Return canonical bytes used for the scientific resource fingerprint.
+    """Return the bytes (sorted-key JSON) from which the manifest checksum is computed.
 
     Only what determines a calculation enters it: the schema version, the
     resource-set id, the source and product files (sizes and hashes), the build
-    settings, the scientific contract and the licences. Descriptive or
+    settings, the physics settings (``scientific_contract``) and the licences. Descriptive or
     administrative fields (creation time, status, validation records,
     compatibility notes, citations) do not, so editing them leaves every
     optical-depth cache valid.
@@ -717,7 +717,7 @@ def _canonical_manifest_payload(data: Mapping[str, Any]) -> bytes:
 
 
 def compute_lblrtm_resource_fingerprint(data: Mapping[str, Any]) -> str:
-    """Compute a deterministic fingerprint for a manifest's scientific state."""
+    """Compute the checksum of the parts of a manifest that determine a calculation."""
 
     return sha256(_canonical_manifest_payload(data)).hexdigest()
 
@@ -739,7 +739,7 @@ def _iter_primary_file_records(
 def _iter_file_records(
     data: Mapping[str, Any],
 ) -> Iterable[tuple[str, Mapping[str, Any]]]:
-    """Yield every hash-pinned bundle file, including license notices."""
+    """Yield every bundle file with a recorded checksum, including licence notices."""
 
     yield from _iter_primary_file_records(data)
     licenses = _require_mapping(data.get("licenses"), field="licenses")
@@ -760,7 +760,7 @@ def _iter_file_records(
 def validate_lblrtm_resource_manifest(
     data: Mapping[str, Any],
 ) -> None:
-    """Validate the built-in schema and cross-field scientific invariants."""
+    """Check the manifest format and that its physics fields agree with each other."""
 
     unknown_fields = set(data) - _ALLOWED_TOP_LEVEL_FIELDS
     if unknown_fields:
@@ -1068,7 +1068,9 @@ def validate_lblrtm_resource_manifest(
         if pure_path.is_absolute() or ".." in pure_path.parts:
             raise LblrtmManifestError(f"{logical_name}.relative_path must remain inside the bundle")
         if relative_path != pure_path.as_posix() or relative_path.startswith("./"):
-            raise LblrtmManifestError(f"{logical_name}.relative_path is not canonical POSIX form")
+            raise LblrtmManifestError(
+                f"{logical_name}.relative_path is not a normalized POSIX path"
+            )
         if relative_path in seen_paths:
             raise LblrtmManifestError(
                 f"{logical_name} reuses {relative_path!r}, already declared by "
@@ -1195,7 +1197,7 @@ def compute_file_sha256(path: str | Path, *, chunk_size: int = 1024 * 1024) -> s
 
 
 def parse_lnfl_tape5(path: str | Path) -> LnflTape5Summary:
-    """Parse the three-line LNFL v3.2 TAPE5 contract used by gtellcorr."""
+    """Parse the three-line LNFL v3.2 TAPE5 that gtellcorr uses."""
 
     try:
         lines = Path(path).read_text(encoding="ascii").splitlines()
@@ -1355,7 +1357,7 @@ def _validate_v2_recipe_build_contract(
     recipe: Mapping[str, Any],
     manifest_data: Mapping[str, Any],
 ) -> Tape12AbiContract:
-    """Bind every v2 recipe precision/ABI identity to its manifest products."""
+    """Check every v2 recipe precision and TAPE12 layout against the manifest products."""
 
     builder = _require_recipe_string(
         recipe.get("builder"),
@@ -1458,10 +1460,10 @@ def validate_lblrtm_build_recipe(
     expected_molecule_selection_mask: str | None = None,
     require_manifest_distribution_status_match: bool = True,
 ) -> Mapping[str, Any]:
-    """Validate a hash-pinned build recipe against its bundle contract.
+    """Check a build recipe against the manifest of its bundle.
 
     The optional expected bounds and mask are used by the freeze tool while it
-    measures a bundle whose scientific contract may differ from the template.
+    measures a bundle whose physics settings may differ from the template.
     The freeze tool also disables the manifest distribution-status comparison
     because it derives that status from the recipe before rewriting the
     template. Normal bundle validation keeps all comparisons enabled.

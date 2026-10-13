@@ -5,6 +5,7 @@ import json
 import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -75,7 +76,7 @@ def test_fits_roundtrip(tmp_path: Path) -> None:
     assert d["fit_summary"]["relcol.h2o"] == 0.9 and d["run_metadata"]["fit_orders"] == [1]
     assert d["stellar_model"] is None and d["resolution_value_source"] == "fitted_order"
     assert load_exposure_order(path, 0)["used_in_fit"] is False
-    assert d["wave_shift"] is None and d["wave_shift_value_source"] == "not_fitted"
+    assert d["wavesol_coeffs"] is None and d["wavesol_source"] == "not_fitted"
     with pytest.raises(KeyError, match="missing order 7"):
         load_exposure_order(path, 7)
     with pytest.raises(ValueError, match="order must be specified"):
@@ -129,10 +130,10 @@ def test_summary_rows(tmp_path: Path) -> None:
     row = joint_row("e.fits", r, T0.isoformat(), 1.234)
     assert len(row) == len(SUMMARY_COLUMNS) and row[7] == "110000"
     assert row[col("elapsed_s")] == "1.2"
-    assert row[col("wave_shift")] == ""  # no offset
+    assert row[col("wavesol_coeffs")] == ""  # no wavelength-solution correction
     assert row[col("converged")] == "" and row[col("n_eval")] == ""  # unknown
     r.wave_shift = (0.0412345678, -0.01)
-    assert joint_row("e.fits", r, "t", 0.0)[col("wave_shift")] == "[0.04123, -0.01]"
+    assert joint_row("e.fits", r, "t", 0.0)[col("wavesol_coeffs")] == "[0.04123, -0.01]"
     r.converged, r.n_eval = False, 37
     assert joint_row("e.fits", r, "t", 0.0)[col("converged") :] == ["false", "37"]
     assert single_row("e.fits", r, "t", 0.0, fitted=True)[12:14] == ["", ""]
@@ -174,30 +175,50 @@ def test_workflow_api_and_cli() -> None:
     assert (args.reuse, args.no_plot, args.no_stellar) == ("any", True, False)
 
 
-def test_wave_shift_columns(tmp_path: Path) -> None:
+def test_wavelength_solution_columns(tmp_path: Path) -> None:
     fitted = _result(1, 50)
     fitted.wave_shift, fitted.wave_shift_err = (0.04, -0.01), (0.002, 0.003)
     path = write_exposure_fits(
         tmp_path / "e_joint_corrected_all_orders.fits", [fitted, _result(0, 40)],
         exposure="e.fits", instrument="NEID", correction_mode="joint_orders",
-        order_metadata={1: {"used_in_fit": True, "wave_shift_value_source": "fitted_order"}},
+        order_metadata={1: {"used_in_fit": True, "wavesol_source": "fitted_order"}},
     )  # fmt: skip
     d = load_exposure_order(path, 1)
-    assert d["wave_shift"] == (0.04, -0.01) and d["wave_shift_err"] == (0.002, 0.003)
-    assert d["wave_shift_value_source"] == "fitted_order"
+    assert d["wavesol_coeffs"] == (0.04, -0.01) and d["wavesol_coeffs_err"] == (0.002, 0.003)
+    assert d["wavesol_source"] == "fitted_order"
     rows = {row[1]: row for row in summary_rows_from_fits(path, "t")}
-    shift = SUMMARY_COLUMNS.index("wave_shift")
+    shift = SUMMARY_COLUMNS.index("wavesol_coeffs")
     assert rows[1][shift] == "[0.04, -0.01]" and rows[0][shift] == ""
-    # results written before the wavelength offset existed have no offset columns
-    with fits.open(path) as h:
-        table = h["ORDER_SUMMARY"]
-        keep = [c for c in table.columns if not c.name.startswith("wave_shift")]
-        h["ORDER_SUMMARY"] = fits.BinTableHDU.from_columns(keep, name="ORDER_SUMMARY")
-        h.writeto(tmp_path / "old.fits")
-    old = load_exposure_order(tmp_path / "old.fits", 1)
-    assert old["wave_shift"] is None and old["wave_shift_value_source"] == "not_fitted"
-    old_rows = summary_rows_from_fits(tmp_path / "old.fits", "t")
-    assert {row[shift] for row in old_rows} == {""}
+
+    def rewrite(name: str, change: Any) -> Path:
+        with fits.open(path) as h:
+            columns = change(h["ORDER_SUMMARY"].columns)
+            h["ORDER_SUMMARY"] = fits.BinTableHDU.from_columns(columns, name="ORDER_SUMMARY")
+            h.writeto(tmp_path / name)
+        return tmp_path / name
+
+    # gtellcorr 0.9.0 wrote the same values as wave_shift, wave_shift_err, ...
+    old_names = {
+        "wavesol_coeffs": "wave_shift",
+        "wavesol_coeffs_err": "wave_shift_err",
+        "wavesol_source": "wave_shift_value_source",
+    }
+
+    def renamed(columns: Any) -> Any:
+        for new, old in old_names.items():
+            columns.change_name(new, old)
+        return columns
+
+    v090 = rewrite("v090.fits", renamed)
+    assert load_exposure_order(v090, 1)["wavesol_coeffs"] == (0.04, -0.01)
+    assert {row[1]: row[shift] for row in summary_rows_from_fits(v090, "t")}[1] == "[0.04, -0.01]"
+    # results written before the correction existed have no such columns
+    older = rewrite(
+        "older.fits", lambda columns: [c for c in columns if not c.name.startswith("wavesol")]
+    )
+    old = load_exposure_order(older, 1)
+    assert old["wavesol_coeffs"] is None and old["wavesol_source"] == "not_fitted"
+    assert {row[shift] for row in summary_rows_from_fits(older, "t")} == {""}
 
 
 def test_corrected_wavelength_hdus(tmp_path: Path) -> None:

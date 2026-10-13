@@ -14,6 +14,7 @@ from astropy.io import fits
 from numpy.typing import NDArray
 
 from gtellcorr.data.products.fits_schema import (
+    _WAVESOL_COLUMNS,
     CORRECTED_WAVE_HDU_NAMES,
     EXPOSURE_FITS_PATTERNS,
     S2D_IMAGE_HDU_NAMES,
@@ -61,7 +62,7 @@ class ExposureResult:
 
     def image(self, name: str) -> NDArray[Any]:
         """Any image product (``WAVE_FIT``, ``TELL_MODEL``, ...; ``WAVE_FIT_CORR`` /
-        ``WAVE_INPUT_CORR`` only when a wavelength offset was fitted)."""
+        ``WAVE_INPUT_CORR`` only when a wavelength-solution correction was fitted)."""
         return np.asarray(self._data["images"][name])
 
     @property
@@ -154,10 +155,12 @@ def load_result(path: str | os.PathLike[str]) -> Result:
 
 
 def _shift_cell(row: Any) -> str:
-    """``wave_shift`` summary cell of an ``ORDER_SUMMARY`` row (empty if absent)."""
-    if "wave_shift" not in (row.array.names or []):
+    """``wavesol_coeffs`` summary cell of an ``ORDER_SUMMARY`` row (empty if absent)."""
+    names = row.array.names or []
+    column = next((c[0] for c in _WAVESOL_COLUMNS if c[0] in names), None)
+    if column is None:
         return ""
-    values = json.loads(str(row["wave_shift"]).strip() or "[]")
+    values = json.loads(str(row[column]).strip() or "[]")
     return shift_cell(values or None)
 
 

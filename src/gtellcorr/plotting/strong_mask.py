@@ -53,7 +53,7 @@ def _metadata_threshold(metadata):
 def plot_strong_telluric_transmission(spectrum_path, *, out=None, threshold=None):
     """Plot one strong-telluric-mask transmission product.
 
-    ``out=None`` writes to the canonical sibling ``figure`` directory; a string
+    ``out=None`` writes to the sibling ``figure`` directory; a string
     writes there; ``out=False`` draws and returns without saving.
 
     Returns ``(fig, ax, out_path)`` where ``out_path`` is None when ``out=False``.

@@ -60,7 +60,7 @@ class FitConfig(ConfigGroup):
     lsf: LSF = field(default_factory=LSF)
     """Instrumental line-spread function: shape and resolving power."""
     wavelength: Wavelength = field(default_factory=Wavelength)
-    """Optional wavelength offset between the telluric model and the data."""
+    """Optional correction of the wavelength solution, fitted on the telluric lines."""
     molecules: Molecules = field(default_factory=Molecules.default)
     """Per molecule: whether its column is fitted, its start value and bounds."""
     molecule_selection: MoleculeSelection = field(default_factory=MoleculeSelection)

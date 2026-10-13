@@ -1,12 +1,12 @@
 """Atmospheric reference files: the RFM MIPAS profile and CelesTrak space weather.
 
 * **MIPAS** (``rfm_mipas_midlatitude_night_v3_20010103.atm``) is a fixed file; its
-  SHA-256 is part of the shipped scientific contract.
-* **CelesTrak** ``SW-All.csv`` grows every day, so it is kept as dated snapshots
-  (``celestrak_space_weather_sw_all_YYYYMMDD.csv``). The hash of the snapshot in use
-  is recorded in ``celestrak_space_weather.json`` next to it and in each run's
-  provenance — never in the scientific configuration. Historical daily values are
-  final observations and do not change between snapshots.
+  SHA-256 is fixed in the LBLRTM setup description shipped with gtellcorr.
+* **CelesTrak** ``SW-All.csv`` grows every day, so it is kept as dated copies
+  (``celestrak_space_weather_sw_all_YYYYMMDD.csv``). The hash of the copy in use is
+  recorded in ``celestrak_space_weather.json`` next to it and in each run's record
+  of its inputs, never in the scientific configuration. Historical daily values are
+  final observations and do not change between copies.
 
 Only the standard library is used for downloads.
 """
@@ -81,7 +81,7 @@ def fetch_mipas(
 def fetch_celestrak(
     directory: str | os.PathLike[str], *, url: str = CELESTRAK_URL, today: datetime | None = None
 ) -> ReferenceFile:
-    """Download today's CelesTrak snapshot and record its hash."""
+    """Download today's CelesTrak table and record its hash."""
     data = _download(url)
     if not data.startswith(b"DATE,"):
         raise ResourceError(f"{url}: unexpected content (not a CelesTrak SW-All table)")
@@ -102,10 +102,10 @@ def fetch_celestrak(
 
 
 def record_celestrak(path: str | os.PathLike[str], *, url: str = CELESTRAK_URL) -> ReferenceFile:
-    """Register an existing CelesTrak snapshot as the one to use (writes the record)."""
+    """Register an existing CelesTrak table as the one to use (writes the record)."""
     target = Path(path)
     if not target.is_file():
-        raise ResourceError(f"CelesTrak snapshot not found: {target}")
+        raise ResourceError(f"CelesTrak table not found: {target}")
     data = target.read_bytes()
     if not data.startswith(b"DATE,"):
         raise ResourceError(f"{target}: not a CelesTrak SW-All table")
@@ -118,12 +118,12 @@ def record_celestrak(path: str | os.PathLike[str], *, url: str = CELESTRAK_URL) 
 
 
 def latest_celestrak(directory: str | os.PathLike[str]) -> ReferenceFile:
-    """The recorded CelesTrak snapshot, verified against its recorded hash."""
+    """The recorded CelesTrak table, checked against its recorded hash."""
     folder = Path(directory)
     record_path = folder / CELESTRAK_RECORD
     if not record_path.is_file():
         raise ResourceError(
-            f"no CelesTrak snapshot recorded in {folder}; run 'gtellcorr resources fetch celestrak'"
+            f"no CelesTrak table recorded in {folder}; run 'gtellcorr resources fetch celestrak'"
         )
     record = json.loads(record_path.read_text(encoding="utf-8"))
     target = folder / record["file"]

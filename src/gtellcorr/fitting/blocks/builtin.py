@@ -1,4 +1,5 @@
-"""Built-in parameter blocks: relative columns, resolving power, LSF shape, wavelength offset."""
+"""Built-in parameter blocks: relative columns, resolving power, LSF shape and the
+wavelength-solution correction."""
 
 from __future__ import annotations
 
@@ -111,7 +112,7 @@ class LsfShapeBlock:
 
 
 class WaveShiftBlock:
-    """Velocity offset of the telluric model [km/s]; Chebyshev coefficients per order.
+    """Wavelength-solution correction as a velocity [km/s]; Chebyshev coefficients per order.
 
     Active for ``wavelength.scope = "order"``.
     """
@@ -128,7 +129,7 @@ class WaveShiftBlock:
         return tuple(f"wave_shift_c{k}" for k in range(int(spec.wave_shift_degree) + 1))
 
     def initial(self, spec: FitSpec) -> Array:
-        """Zero offset."""
+        """No correction."""
         return np.zeros(int(spec.wave_shift_degree) + 1, float)
 
     def bounds(self, spec: FitSpec) -> tuple[Array, Array]:
@@ -138,12 +139,12 @@ class WaveShiftBlock:
         return np.full(n, float(lo)), np.full(n, float(hi))
 
     def apply(self, values: Array, spec: FitSpec, state: ModelState) -> ModelState:
-        """Set the offset coefficients."""
+        """Set the correction coefficients."""
         return dataclasses.replace(state, wave_shift=tuple(float(v) for v in values))
 
 
 class SharedWaveShiftBlock(WaveShiftBlock):
-    """One constant velocity offset shared by all orders of a joint fit
+    """One constant velocity correction shared by all orders of a joint fit
     (``wavelength.scope = "exposure"``, degree 0)."""
 
     scope: ClassVar[Scope] = "exposure"

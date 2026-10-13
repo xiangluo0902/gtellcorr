@@ -7,7 +7,7 @@ repeated per order. Adding a fit parameter means writing a block and registering
 it (entry-point group ``gtellcorr.parameter_blocks``); the solver is unchanged.
 
 With the built-in blocks theta = ``[relcol..., resolution?, lsf_shape?]``, followed
-by the wavelength-offset coefficients when ``wavelength.fit`` is set.
+by the wavelength-solution correction coefficients when ``wavelength.fit`` is set.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ parameter_blocks.register("shared_wave_shift", SharedWaveShiftBlock)
 
 def default_blocks() -> tuple[ParameterBlock, ...]:
     """The built-in blocks in theta order: relcol, resolution, LSF shape, then the
-    wavelength offsets (exposure-wide, then per order)."""
+    wavelength-solution corrections (exposure-wide, then per order)."""
     return (
         RelcolBlock(),
         ResolutionBlock(),

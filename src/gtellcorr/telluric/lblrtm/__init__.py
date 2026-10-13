@@ -1,8 +1,8 @@
 """gtellcorr-owned LBLRTM resource helpers for the active project backend.
 
 Importing this package remains intentionally lightweight: the facade exposes
-resource/provenance helpers but does not validate a bundle, start LBLRTM, or
-bind the run-scoped TauCache context.
+resource helpers but does not check a bundle, start LBLRTM, or set up the
+optical-depth cache of a run.
 A run (:class:`~gtellcorr.telluric.model.TelluricModel`) validates the configured
 double-precision bundle once and reuses the validated resource object for all its
 LBLRTM work: optical-depth caches, fits and the strong-telluric mask.

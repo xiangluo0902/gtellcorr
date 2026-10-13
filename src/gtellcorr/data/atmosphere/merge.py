@@ -101,7 +101,7 @@ def merge_site_measurements(
     AtmosphereProfile
         A new profile (deep copy of ``profile``) with merged arrays and
         ``merged_with_asm=True`` plus ``asm_inputs`` / ``asm_shifts``
-        for audit.
+        recording what was applied.
     """
     z = np.asarray(profile.height_km, dtype=float).copy()
     P = np.asarray(profile.pressure_hpa, dtype=float).copy()

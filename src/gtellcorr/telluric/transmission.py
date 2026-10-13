@@ -103,13 +103,13 @@ def reference_spectrum(
     abundances: Mapping[str, float],
     broaden: bool = True,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], dict[str, Any]]:
-    """Transmission of all twelve engine molecules on the cache grid, with its identity.
+    """Transmission of all twelve engine molecules on the cache grid, with its key.
 
     Used by the strong-telluric mask. ``abundances`` gives, per engine molecule, the
     h2o multiplier or the column in ``REF_COLUMN`` units. With *broaden*, the
     transmission is convolved with a Gaussian of resolving power *resolution*
     (:func:`~gtellcorr.fitting.lsf.apply_lsf`, R fixed).
-    ``info["forward_identity_digest"]`` identifies the result (cache key of the
+    ``info["forward_identity_digest"]`` is the key of the result (cache key of the
     strong-mask chunks).
     """
     import hashlib

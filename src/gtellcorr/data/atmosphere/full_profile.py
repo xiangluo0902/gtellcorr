@@ -5,13 +5,13 @@ under ``<atmosphere_cache>/full_profile/`` (``Settings.atmosphere_cache``) for
 the optical-depth caches and the fits.
 
 Each full profile carries ``z_km``, ``T_K``, ``P_hPa``, ``H2O_ppmv`` on
-the project-owned 0--120 km grid with full provenance (lower/upper source,
-reference atmosphere + blend zone + PWV).
+gtellcorr's fixed 0--120 km grid, with a record of how it was made (lower/upper
+source, reference atmosphere, blend zone, PWV).
 
 Why a separate step?
 --------------------
 * Building the profile is network-bound (reanalysis download), runs once per
-  exposure and is deterministic given its inputs.
+  exposure and always gives the same result for the same inputs.
 * The optical-depth caches and the fits then read the cached ``.dat``: no
   network and no stitching at fit time.
 
@@ -131,7 +131,7 @@ def _msis00_on_grid(
             dtype=np.float64,
         ),
         version="00",
-        # Preserve the established numerical policy.  The complete
+        # Keep the numerics used so far.  The complete
         # seven-element vector is parsed and recorded, but daily-Ap mode uses
         # only aps[:, 0].  Switching to storm-time mode (-1) is a separate
         # scientific change and must not be hidden inside an offline-data fix.
@@ -207,7 +207,7 @@ def extract_base_atmosphere(
 
     With no ``reference_source`` this returns only the independently defined
     float64 0--120 km grid.  Building a complete profile requires a caller to
-    load a hash-pinned reference explicitly by passing the official RFM
+    load the reference explicitly by passing the official RFM
     mid-latitude-night ``ngt.atm`` file, its SHA-256 and source URL.
     """
     if reference_source is None:
@@ -265,7 +265,7 @@ def _build_full_profile_resolved(
         Keys ``z_km``, ``T_K``, ``P_hPa``, ``H2O_ppmv`` on the exact
         project-owned 0--120 km, 121-level float64 grid.
     metadata : dict
-        Provenance fields suitable for the .dat ``#``-header (see
+        Fields describing how the profile was made, for the .dat ``#``-header (see
         :func:`save_full_profile`).
     """
     if upper_source not in ("msis00", "mipas"):
@@ -294,7 +294,7 @@ def _build_full_profile_resolved(
     if not isinstance(reference_sha256, str) or len(reference_sha256) != 64:
         raise ValueError("the reference atmosphere has no valid source_sha256")
     if not np.array_equal(reference_z, CANONICAL_ALTITUDE_GRID_KM):
-        raise ValueError("base reference grid does not match the canonical 0--120 km grid")
+        raise ValueError("base reference grid does not match the 0--120 km grid")
     if (
         reference_h2o.shape != CANONICAL_ALTITUDE_GRID_KM.shape
         or not np.all(np.isfinite(reference_h2o))
@@ -302,7 +302,7 @@ def _build_full_profile_resolved(
     ):
         raise ValueError("base H2O reference must be finite and non-negative")
     # Always allocate the grid from the project constant.  The third-party HGT
-    # column above is validation evidence, never the grid's numerical source.
+    # column above is only checked against it, never used as the grid.
     z_base = np.array(
         CANONICAL_ALTITUDE_GRID_KM,
         dtype=np.float64,
@@ -398,8 +398,8 @@ def build_full_profile(
     """Build one complete profile while resolving MSIS drivers exactly once.
 
     The public signature remains stable.  ``get_full_profile`` can pass its
-    already-resolved immutable inputs to the private construction boundary so
-    the cache identity and calculation consume the same object.
+    already-resolved inputs to the private construction function so the cache key
+    and the calculation use the same objects.
     """
 
     return _build_full_profile_resolved(
@@ -425,14 +425,13 @@ def _full_profile_request_identity(
     reference_provenance: Mapping,
     space_weather_inputs: Mapping | None = None,
 ) -> dict:
-    """Return the complete deterministic identity of one stitched profile.
+    """Return the cache key of one stitched profile.
 
-    The digest binds the numerical lower atmosphere and every public option or
-    versioned construction policy that can select or transform it.  It is kept
-    separate from the output profile hash: this identity answers whether a
-    cached result was built for the same *request*, including inputs that can
-    affect the MSIS upper atmosphere or the provenance of an otherwise equal
-    numerical result.
+    The key covers the numerical lower atmosphere and every option or versioned
+    construction rule that can select or transform it.  It is separate from the
+    hash of the output profile: the key tells whether a cached result was built
+    for the same *request*, including inputs that can change the MSIS upper
+    atmosphere or the record of an otherwise equal numerical result.
     """
     lower_arrays = {}
     for field_name in _FULL_PROFILE_LOWER_ARRAY_FIELDS:
@@ -595,7 +594,7 @@ def _full_profile_request_identity(
 def _request_keyed_cache_basename(
     requested_basename: str, *, identity_token: str, profile_kind: str
 ) -> str:
-    """Insert an identity token without hiding the canonical time suffix."""
+    """Insert a key token before the time suffix of the file name."""
     kind_suffix = f"_{profile_kind}"
     if requested_basename.endswith(kind_suffix):
         stem_without_kind = requested_basename[: -len(kind_suffix)]
@@ -732,15 +731,14 @@ def get_full_profile(
     * The current lower profile is obtained through ``get_meteo``.  Its raw
       cache remains keyed by data cycle, so an existing raw profile needs no
       network access.
-    * A full-profile request identity then binds the lower numerical arrays,
-      upper source, RFM reference, interpolation/ASM settings, blend zone and
-      construction policies.
+    * A cache key then covers the lower numerical arrays, upper source, RFM
+      reference, interpolation/ASM settings, blend zone and construction rules.
     * A matching v3 cache skips upper-atmosphere generation and stitching.
-      Earlier files have no complete v3 identity and remain untouched.
+      Earlier files have no complete v3 key and are left untouched.
 
     Parameters mirror ``get_meteo`` (site / backend / on-site merge) plus
     :func:`build_full_profile` (``upper_source`` / ``blend_zone_km`` /
-    ``base``).  Load the explicit hash-pinned RFM reference once with
+    ``base``).  Load the RFM reference (checked against its SHA-256) once with
     :func:`extract_base_atmosphere` and reuse that ``base`` for many
     exposures.
 
@@ -961,8 +959,8 @@ def edit_profile(
     Pure function: no I/O, network access, or forward-model state.  Both
     sources must be downloaded or computed up-front (e.g. ERA5 via
     ``fetch('era5_cdsapi', ...)``, NRLMSISE-00 via
-    ``pymsis.calculate(...)``, MIPAS via the explicit hash-pinned official
-    RFM reference).
+    ``pymsis.calculate(...)``, MIPAS via the official RFM reference, checked
+    against its SHA-256).
 
     Parameters
     ----------
@@ -992,8 +990,8 @@ def edit_profile(
     The function operates on a single scalar field at a time.  To merge
     temperature, pressure and water-vapour profiles call it three times
     on the same blend zone.  The resulting arrays already span the complete
-    project grid and can be passed directly to the LBLRTM atmosphere
-    contract without another boundary-stitching operation.
+    grid and can be passed directly to LBLRTM without stitching the boundaries
+    again.
 
     Examples
     --------
@@ -1078,7 +1076,7 @@ def add_reference_molecular_profiles(
 
     The full profile gives exposure/site-specific ``T_K``, ``P_hPa`` and ``H2O_ppmv``
     from the reanalysis/upper-atmosphere workflow.  The remaining engine
-    molecules follow the established climatological-reference policy.  This
+    molecules follow the climatological reference, as before.  This
     helper consumes either the already-loaded official RFM reference mapping
     or the same caller-supplied ``ngt.atm`` bytes/path and interpolates its
     dry-air ppmv fields onto the full-profile grid.  It does not modify the input
@@ -1113,7 +1111,7 @@ def add_reference_molecular_profiles(
         raise ValueError("the molecular reference has no record of its source file")
     source_z = np.asarray(reference.get("z_km"), dtype=np.float64)
     if not np.array_equal(source_z, CANONICAL_ALTITUDE_GRID_KM):
-        raise ValueError("molecular reference grid must match the canonical 0--120 km grid")
+        raise ValueError("molecular reference grid must match the 0--120 km grid")
     missing_fields = [
         field_name for field_name in _REFERENCE_MOLECULE_FIELDS if field_name not in reference
     ]
@@ -1134,7 +1132,7 @@ def add_reference_molecular_profiles(
 
 def save_full_profile(full: dict, dirpath: str, basename: str, metadata: dict | None = None) -> str:
     """Save a full profile (``z_km``, ``T_K``, ``P_hPa``, ``H2O_ppmv``) to
-    ``{dirpath}/{basename}.dat`` with a ``#``-header carrying provenance.
+    ``{dirpath}/{basename}.dat`` with a ``#``-header saying how it was made.
 
     Format follows :func:`save_profile`'s convention (JSON-encoded scalar
     metadata + column block) so it round-trips exactly.  Returns the path.

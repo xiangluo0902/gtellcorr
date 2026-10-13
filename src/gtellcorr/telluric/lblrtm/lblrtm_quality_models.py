@@ -1,4 +1,4 @@
-"""Immutable direct-LBLRTM transmission quality result models."""
+"""Read-only results of the LBLRTM transmission quality check."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ class TelluricTransmissionQualityResult:
 
     @property
     def summary(self) -> TransmissionQualitySummary:
-        """Return a deterministic quality summary for this spectrum."""
+        """Return the quality summary of this spectrum."""
 
         return summarize_transmission_quality(
             self.transmission,

@@ -1,6 +1,6 @@
 """Read LBLRTM v12.17 transmission or optical depth from TAPE12.
 
-The format contract in this module is derived from the pinned AER LBLRTM
+The format read by this module is taken from the AER LBLRTM
 v12.17 source:
 
 * ``README.md`` describes a file-header record followed by repeating
@@ -240,7 +240,7 @@ class LblrtmTape12DiagnosticResult:
 
 
 def _public_tape12_abi(layout: _Tape12BinaryLayout) -> LblrtmTape12Abi:
-    """Return an immutable public record for one detected internal layout."""
+    """Return a read-only public record of one detected internal layout."""
 
     return LblrtmTape12Abi(
         byte_order=layout.byte_order,
@@ -350,7 +350,7 @@ def read_lblrtm_tape12_transmission_quality(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return raw TAPE12 arrays plus non-destructive quality flags and mask.
 
-    This is an audited fitting-input path, not a repair path.  Transmission
+    This path prepares fitting input; it never repairs values.  Transmission
     values are byte-decoded and returned unchanged; callers must use the
     returned ``fit_usable`` mask to exclude zero and nonphysical samples.
     """
@@ -651,7 +651,7 @@ def _validate_tape12_panel_coverage(
 def _read_tape12_source_bytes(
     source: bytes | bytearray | memoryview | str | os.PathLike[str],
 ) -> bytes:
-    """Snapshot a supported source into an immutable, size-bounded payload."""
+    """Read a supported source into read-only bytes (size-limited)."""
 
     if isinstance(source, bytes):
         payload = source
@@ -702,7 +702,7 @@ def _read_tape12_source_bytes(
         except OSError as exc:
             raise LblrtmOutputError(f"cannot read TAPE12 path {path!s}") from exc
         except MemoryError as exc:
-            raise LblrtmOutputError(f"cannot allocate a TAPE12 snapshot for path {path!s}") from exc
+            raise LblrtmOutputError(f"cannot allocate memory to read TAPE12 at {path!s}") from exc
         finally:
             if file_descriptor is not None:
                 with contextlib.suppress(OSError):
@@ -1226,7 +1226,7 @@ def _validate_tape12_spectrum(
     *,
     enforce_transmission_bounds: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Validate and freeze the reader's public array contract."""
+    """Check the arrays the reader returns and make them read-only."""
 
     try:
         wavenumber = np.array(wavenumber_cm1, dtype=np.float64, copy=True, order="C")

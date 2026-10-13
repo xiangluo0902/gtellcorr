@@ -14,7 +14,7 @@ gtellcorr currently comes with definitions for **WIYN/NEID**, **LBT/PEPSI** and
 **VLT/ESPRESSO**; other echelle spectrographs can be described in a TOML file, and
 more instruments will follow.
 
-> Version 0.9.0 is a public preview of 1.0. It reproduces the results of the
+> Version 0.9.1 is a public preview of 1.0. It reproduces the results of the
 > accompanying paper (Luo et al., submitted to *Universe*). See
 > [Known limitations](#known-limitations) before using it.
 
@@ -25,14 +25,14 @@ earlier, pip has to compile the `pymsis` dependency, which needs a Fortran compi
 (for example `conda install -c conda-forge gfortran`).
 
 ```bash
-pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.0"
+pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.1"
 ```
 
 Optional extras:
 
 ```bash
-pip install "gtellcorr[era5] @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.0"   # ERA5 profiles
-pip install "gtellcorr[pysme] @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.0"  # pySME stellar templates
+pip install "gtellcorr[era5] @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.1"   # ERA5 profiles
+pip install "gtellcorr[pysme] @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.1"  # pySME stellar templates
 ```
 
 `environment.yml` pins the exact library versions used for the paper:

@@ -1,5 +1,5 @@
-"""Parameter groups of the fitting engine: continuum, LSF, wavelength offset, molecules
-and order selection.
+"""Parameter groups of the fitting engine: continuum, LSF, wavelength-solution
+correction, molecules and order selection.
 """
 
 from __future__ import annotations
@@ -107,36 +107,38 @@ class LSF(ConfigGroup):
                 self.fail("resolution_bounds", f"must satisfy 0 < lo < hi, got ({lo}, {hi})")
 
 
-#: Scope of the wavelength offset (see :attr:`Wavelength.scope`).
+#: Scope of the wavelength-solution correction (see :attr:`Wavelength.scope`).
 WavelengthScope = Literal["order", "exposure"]
 
 
 @dataclass(frozen=True, kw_only=True)
 class Wavelength(ConfigGroup):
-    """Wavelength offset between the telluric model and the data.
+    """Correction of the wavelength solution, fitted on the telluric lines.
 
-    The fitted offset is a velocity ``v(x) = sum_k c_k T_k(u)`` [km/s] (``u`` = ``ln x``
-    mapped onto [-1, 1] across the order, i.e. a velocity coordinate), applied to the
-    telluric model only: ``T_obs(x) = T_model(x / (1 + v(x) / c))``. The data and the
-    stellar model are not moved.
+    The correction is a velocity ``v(x) = sum_k c_k T_k(u)`` [km/s] (``u`` = ``ln x``
+    mapped onto [-1, 1] across the order, i.e. a velocity coordinate): degree 0 corrects
+    the zero point, higher degrees the dispersion as well. In the fit it is applied to
+    the telluric model, ``T_obs(x) = T_model(x / (1 + v(x) / c))``; the data and the
+    stellar model are not moved. The corrected wavelengths of the data pixels are
+    written to the results (``WAVE_FIT_CORR``, ``WAVE_INPUT_CORR``).
     """
 
     fit: bool = False
-    """Fit the offset."""
+    """Fit the correction."""
     order: int = 0
     """Chebyshev degree of v(x): 0 = one constant velocity per order."""
     scope: WavelengthScope = "order"
-    """``order``: an offset per order (joint fits: order-scope parameters);
-    ``exposure``: one offset shared by all orders (``order = 0`` only)."""
+    """``order``: a correction per order (joint fits: order-scope parameters);
+    ``exposure``: one correction shared by all orders (``order = 0`` only)."""
     bounds_kms: tuple[float, float] = (-1.0, 1.0)
     """Fit bounds of every Chebyshev coefficient [km/s]."""
 
     def validate(self) -> None:
-        """Non-negative degree, constant for an exposure-wide offset, bounds around 0."""
+        """Non-negative degree, constant for an exposure-wide correction, bounds around 0."""
         if self.order < 0:
             self.fail("order", f"must be >= 0, got {self.order}")
         if self.scope == "exposure" and self.order != 0:
-            self.fail("scope", "an exposure-wide offset must be a constant (order = 0)")
+            self.fail("scope", "an exposure-wide correction must be a constant (order = 0)")
         lo, hi = self.bounds_kms
         if not lo < 0.0 < hi:
             self.fail("bounds_kms", f"must satisfy lo < 0 < hi, got ({lo}, {hi})")
@@ -158,7 +160,7 @@ class Molecule(ConfigGroup):
     """Principal absorption bands [nm], used to pre-select orders."""
     anchor_orders: tuple[int, ...] | None = None
     """Orders in which to fit the molecule. ``None`` = the instrument's default;
-    ``()`` = no pinned orders (select orders by ``bands_nm``)."""
+    ``()`` = no assigned orders (select orders by ``bands_nm``)."""
 
     def validate(self) -> None:
         """Positive ordered bounds containing ``relcol``; valid band windows."""

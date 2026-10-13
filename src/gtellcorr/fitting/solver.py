@@ -10,7 +10,7 @@ convolution, interpolation to the data grid, then the continuum is projected out
 (variable projection) and the weighted residual returned. The fitted LSF acts
 on the telluric transmission only: the model is ``C * M * (K_R conv T)``, not
 ``K_R conv (M * T)`` (the stellar template keeps its preprocessing resolution). A
-fitted wavelength offset (:mod:`gtellcorr.fitting.wave_shift`) likewise moves only
+fitted wavelength-solution correction (:mod:`gtellcorr.fitting.wave_shift`) moves only
 ``K_R conv T`` before it is interpolated to the data grid.
 """
 

@@ -5,7 +5,7 @@ H2O scaled by ``h2o_relcol``, Gaussian LSF at the exposure's resolving power) is
 computed in chunks for the first exposure's profile, airmass and resolution; where
 it falls below ``threshold`` the wavelengths become exclusion windows for every
 exposure. The chunks and the product (transmission ``.npz`` and mask ``.txt``) are
-cached under ``<run>/mask_spectral_line/data``. Each carries an identity digest of
+cached under ``<run>/mask_spectral_line/data``. Each carries a key (SHA-256) of
 everything it depends on (optical-depth cache, columns, LSF, grid, mask settings) and
 SHA-256 sums of its arrays; a cached file is reused only if all of them match.
 """
@@ -52,10 +52,10 @@ _MASK_IDENTITY_SCHEMA = "gtellcorr_strong_mask_identity_v2"
 
 
 # ---------------------------------------------------------------------------
-# identities and atomic writes
+# keys and atomic writes
 # ---------------------------------------------------------------------------
 def _identity_digest(domain: bytes, record: Mapping[str, Any]) -> str:
-    """SHA-256 of *domain* and the canonical JSON of *record* (length-prefixed)."""
+    """SHA-256 of *domain* and the sorted-key JSON of *record* (length-prefixed)."""
     payload = json.dumps(
         record, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
     ).encode("ascii")
@@ -177,8 +177,7 @@ def filename_token(
     threshold: float,
 ) -> str:
     """Readable summary of the mask's inputs in its file names: wavelength range, R,
-    atmosphere sources and epoch, airmass and threshold (the identity digests decide
-    reuse)."""
+    atmosphere sources and epoch, airmass and threshold (the keys decide reuse)."""
     lo, hi = map(float, wavelength_range_nm)
     dt_token = time.strftime("%Y%m%dT%H%M%S") if time is not None else "unknown_time"
     backend_token = str(backend).strip().replace(".", "_").replace("/", "_") or "unknown"
@@ -249,7 +248,7 @@ def _request_identity(
     components: Sequence[str],
     ref_column: Mapping[str, float],
 ) -> str:
-    """Identity of a chunk request (optical-depth cache, columns, grid range, LSF);
+    """Key of a chunk request (optical-depth cache, columns, grid range, LSF);
     computed before the chunk and used as its cache file name."""
     tau_key, _ = model.order_cache_identity(
         profile,
@@ -300,7 +299,7 @@ def _model_range(
     abundances: Mapping[str, float],
 ) -> tuple[Array, Array, dict[str, Any]]:
     """Broadened transmission of the given abundances over *lo*-*hi* nm (finite samples
-    only) and its identity information."""
+    only) and the information its key is made from."""
     from gtellcorr.telluric.transmission import reference_spectrum
 
     wave, trans, info = reference_spectrum(
@@ -322,7 +321,7 @@ def _compute_chunk(
     ref_column: Mapping[str, float],
 ) -> tuple[Array, Array, Array, str]:
     """Total and per-molecule transmission of one chunk on the total's grid, and the
-    identity of the result."""
+    key of the result."""
     lo, hi = chunk
     wave, total, info = _model_range(
         model, profile, geometry, lo, hi, resolution=resolution,
@@ -359,7 +358,7 @@ def _compute_chunk(
 
 
 def _grid_record(wave: Array) -> dict[str, Any]:
-    """Identity record of a wavelength grid (size and checksum)."""
+    """Record of a wavelength grid for keys (size and checksum)."""
     return {
         "medium": "air",
         "unit": "nm",
@@ -419,10 +418,10 @@ def reference_transmission_bundle(
     overwrite: bool = False,
 ) -> tuple[Array, Array, tuple[str, ...], Array, str]:
     """Total and per-molecule transmission over *wavelength_range_nm*, joined from
-    *chunk_nm* chunks, plus the identity of the whole.
+    *chunk_nm* chunks, plus the key of the whole.
 
     Returns ``(wave_nm, total, component names, per-component transmissions,
-    identity)``. With *cache_dir*, each chunk is stored there and reused unless
+    key)``. With *cache_dir*, each chunk is stored there and reused unless
     *overwrite*. Joined chunks keep only the points beyond the previous chunk's end.
     """
     from gtellcorr.telluric.lblrtm.tau_cache import REF_COLUMN
@@ -527,7 +526,7 @@ def _write_product(
     metadata: Mapping[str, Any],
 ) -> None:
     """Write the mask (``lo_nm hi_nm`` lines under a commented header of *metadata*) and
-    the transmission ``.npz`` with the pixel mask, identities and checksums."""
+    the transmission ``.npz`` with the pixel mask, keys and checksums."""
     mask = np.zeros(wave.shape, bool)
     for lo, hi in windows:
         mask |= (wave >= lo) & (wave <= hi)
@@ -561,7 +560,7 @@ def _write_product(
 
 
 def _product_matches(paths: Mapping[str, Path], forward: str, mask_identity: str) -> bool:
-    """Whether the stored product has these identities and passes its checks (array and
+    """Whether the stored product has these keys and passes its checks (array and
     mask-text checksums, shapes, finite increasing grid)."""
     try:
         with np.load(paths["spectrum"], allow_pickle=False) as p:
@@ -610,9 +609,9 @@ class StrongMaskResult:
     status: str
     """``exists`` (reused) or ``generated``."""
     forward_identity_digest: str
-    """Identity of the transmission model."""
+    """Key of the transmission model."""
     mask_identity_digest: str
-    """Identity of the mask (model identity and mask settings)."""
+    """Key of the mask (model key and mask settings)."""
     cache_token: str
     """File-name token of the product."""
 
@@ -712,7 +711,7 @@ def generate_strong_telluric_mask(
             "resolution": float(resolution),
             "airmass": float(geometry.airmass),
             "threshold": float(config.threshold),
-            # product identity key kept as "relcol" so cached masks stay valid
+            # recorded as "relcol", as in earlier masks, so cached masks stay valid
             "relcol": float(config.h2o_relcol),
             "chunk_nm": float(config.chunk_nm),
             "pad_nm": float(config.pad_nm),

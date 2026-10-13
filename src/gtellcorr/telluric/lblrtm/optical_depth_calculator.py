@@ -84,8 +84,8 @@ def calculate_lblrtm_optical_depth(
     """Return direct, unconvolved IEMIT=0 sight-line optical depth.
 
     ``optical_depth_grid_spacing_cm1`` is written as IOD=1 ``DVOUT``.  Wide
-    requests use the same deterministic overlapping segment plan and fixed
-    sample ownership as the production transmission calculator.  Segment
+    requests use the same overlapping segment plan, each sample taken from one
+    fixed segment, as the transmission calculator.  Segment
     values are never blended.
     """
 

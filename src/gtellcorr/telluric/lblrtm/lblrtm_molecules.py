@@ -1,7 +1,7 @@
 """LBLRTM runtime-molecule names and full-profile field mappings.
 
-This module defines the 12-molecule user-atmosphere contract used by the
-direct LBLRTM backend.  It is deliberately separate from
+This module defines the 12 molecules of the user atmosphere passed to
+LBLRTM.  It is deliberately separate from
 ``lnfl_molecule_selection``: LNFL selects spectral-line data using 47 fixed
 slots, whereas an LBLRTM run supplies profiles for molecule IDs 1--12.
 
@@ -181,7 +181,7 @@ def normalize_lblrtm_molecule_name(name: str) -> str:
 def get_lblrtm_molecule_definition(
     name: str,
 ) -> LblrtmMoleculeDefinition:
-    """Return the immutable definition for a canonical name or alias."""
+    """Return the definition for a canonical name or alias."""
 
     canonical_name = normalize_lblrtm_molecule_name(name)
     return LBLRTM_MOLECULES_BY_NAME[canonical_name]
