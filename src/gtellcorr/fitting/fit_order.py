@@ -21,6 +21,7 @@ from numpy.typing import NDArray
 from scipy.optimize import least_squares
 
 from gtellcorr.fitting.blocks import ModelState, ParameterBlock
+from gtellcorr.fitting.continuum import fit_continuum
 from gtellcorr.fitting.fit_spec import FitSpec
 from gtellcorr.fitting.results import JointOrdersFitResult, OrderFitResult
 from gtellcorr.fitting.solver import (
@@ -30,11 +31,13 @@ from gtellcorr.fitting.solver import (
     evaluate_order,
     inverse_variance,
     joint_layout,
+    lines_only,
     minimize,
     pack,
     theta_scale,
     unpack,
 )
+from gtellcorr.fitting.stellar_shift import ShiftableStellarModel, stellar_on_data
 from gtellcorr.telluric.order_cache import OrderCache
 
 __all__ = ["JointOrderInput", "fit_joint_orders", "fit_single_order"]
@@ -53,11 +56,47 @@ def _corrected(flux: Array, err: Array, telluric: Array) -> tuple[Array, Array]:
         )
 
 
+def _output_continuum(
+    spectrum: SpectrumLike, spec: FitSpec, evaluated: Any, *, keep: Any, weight: Array
+) -> Array:
+    """The continuum stored with the result: the fit's own, or (``continuum_output_niter``
+    differing from ``continuum_niter``) a sigma-clipped refit against the fitted model."""
+    if int(spec.continuum_output_niter) == int(spec.continuum_niter):
+        return np.asarray(evaluated.continuum, float)
+    return np.asarray(
+        fit_continuum(
+            np.asarray(spectrum.wave_fit, float),
+            np.asarray(spectrum.flux, float),
+            evaluated.multiplicative_model,
+            order=int(spec.continuum_order),
+            sigma_clip=(float(spec.continuum_sigma_clip[0]), float(spec.continuum_sigma_clip[1])),
+            max_iter=int(spec.continuum_output_niter),
+            mask=np.asarray(keep, bool),
+            weight=weight,
+        ),
+        float,
+    )
+
+
 def _name_errors(errors: Array | None, names: Sequence[str]) -> dict[str, float]:
     """Parameter errors by theta name (empty if the covariance was singular)."""
     if errors is None:
         return {}
     return {name: float(e) for e, name in zip(errors, names, strict=True)}
+
+
+def _stellar_input(stellar_model: Any | None, spec: FitSpec) -> Any | None:
+    """The stellar model as the fit uses it: kept shiftable when the spec moves the
+    template (fitted or fixed ``stellar_shift``), else as an array."""
+    if stellar_model is None:
+        if spec.fit_stellar_shift:
+            raise ValueError("fit_stellar_shift needs a stellar model")
+        return None
+    if spec.fit_stellar_shift or spec.stellar_shift is not None:
+        if not isinstance(stellar_model, ShiftableStellarModel):
+            raise ValueError("a stellar shift needs a ShiftableStellarModel, not a fixed array")
+        return stellar_model
+    return np.asarray(stellar_model, float)
 
 
 def _shift(state: ModelState) -> tuple[float, ...] | None:
@@ -103,8 +142,9 @@ def fit_single_order(
         A callable is only called once the order is known to be fittable, so
         orders without molecules or pixels never pay for an LBLRTM run.
     stellar_model
-        Stellar template on ``wave_fit`` (``template`` treatment); ``None`` fits
-        ``C * T`` (``mask`` treatment).
+        Stellar template on ``wave_fit`` (``template`` treatment), a
+        :class:`~gtellcorr.fitting.stellar_shift.ShiftableStellarModel` when the spec
+        moves it; ``None`` fits ``C * T`` (``mask`` treatment).
     exclusion
         Boolean mask, True = excluded from the fit.
     stellar_treatment
@@ -141,7 +181,7 @@ def fit_single_order(
         fit_keep = ~excluded
         weight_mask = fit_keep.astype(float)
         excluded = excluded.copy()
-    stellar = None if stellar_model is None else np.asarray(stellar_model, float)
+    stellar = _stellar_input(stellar_model, spec)
 
     theta0, lo, hi, names = pack(spec, blocks)
     n_projected = int(spec.continuum_order) + 1
@@ -159,7 +199,7 @@ def fit_single_order(
             flux_corrected=y.copy(),
             err_corrected=e.copy(),
             continuum=None,
-            stellar_model=stellar,
+            stellar_model=stellar_on_data(stellar, None),
             exclusion=excluded,
             relcol={m: np.nan for m in spec.molecules},
             lsf_kind=spec.lsf_kind,
@@ -195,7 +235,10 @@ def fit_single_order(
         keep_mask=fit_keep,
         stellar_model=stellar,
     )
-    telluric = evaluated.telluric_on_data
+    telluric, continuum = lines_only(
+        evaluated,
+        _output_continuum(spectrum, spec, evaluated, keep=fit_keep, weight=inverse_variance(e)),
+    )
     corrected, err_corrected = _corrected(y, e, telluric)
     errors = _name_errors(opt.theta_err, names)
     return OrderFitResult(
@@ -207,8 +250,8 @@ def fit_single_order(
         tell_model=telluric,
         flux_corrected=corrected,
         err_corrected=err_corrected,
-        continuum=evaluated.continuum,
-        stellar_model=stellar,
+        continuum=continuum,
+        stellar_model=stellar_on_data(stellar, state.stellar_shift),
         exclusion=excluded,
         relcol={m: float(state.scales[m]) for m in spec.molecules},
         relcol_err={n[len("relcol_") :]: v for n, v in errors.items() if n.startswith("relcol_")},
@@ -219,6 +262,8 @@ def fit_single_order(
         lsf_shape_err=errors.get("lsf_shape"),
         wave_shift=_shift(state),
         wave_shift_err=_shift_err(spec, errors, ""),
+        stellar_shift=state.stellar_shift,
+        stellar_shift_err=errors.get("stellar_shift"),
         stellar_treatment=stellar_treatment,
         converged=bool(opt.success),
         n_eval=int(opt.n_eval),
@@ -245,7 +290,8 @@ class JointOrderInput:
     spectrum: SpectrumLike
     cache: OrderCache
     spec: FitSpec
-    stellar_model: Array | None
+    stellar_model: Any | None
+    """An array, or a :class:`ShiftableStellarModel` when the spec moves the template."""
     exclusion: NDArray[np.bool_] | None
     weight: Array
     keep_pixels: NDArray[np.bool_]
@@ -273,7 +319,7 @@ class JointOrderInput:
             spectrum=spectrum,
             cache=cache,
             spec=spec,
-            stellar_model=None if stellar_model is None else np.asarray(stellar_model, float),
+            stellar_model=_stellar_input(stellar_model, spec),
             exclusion=None if exclusion is None else np.asarray(exclusion, bool),
             weight=inverse_variance(err),
             keep_pixels=keep,
@@ -402,8 +448,13 @@ def _joint_order_result(
     coefficients and order-scope parameters, not the shared ones.
     """
     evaluated = _evaluate(item, state)
-    telluric = evaluated.telluric_on_data
     spectrum = item.spectrum
+    telluric, continuum = lines_only(
+        evaluated,
+        _output_continuum(
+            spectrum, item.spec, evaluated, keep=item.keep_pixels, weight=item.weight
+        ),
+    )
     corrected, err_corrected = _corrected(spectrum.flux, spectrum.err, telluric)
     prefix = f"order{item.order:03d}_"
     n_local = sum(1 for name in layout_names if name.startswith(prefix))
@@ -419,8 +470,8 @@ def _joint_order_result(
         tell_model=telluric,
         flux_corrected=corrected,
         err_corrected=err_corrected,
-        continuum=evaluated.continuum,
-        stellar_model=item.stellar_model,
+        continuum=continuum,
+        stellar_model=stellar_on_data(item.stellar_model, state.stellar_shift),
         exclusion=item.exclusion,
         relcol={m: float(state.scales[m]) for m in item.spec.molecules},
         relcol_err={m: relcol_err[m] for m in item.spec.molecules if m in relcol_err},
@@ -431,6 +482,8 @@ def _joint_order_result(
         lsf_shape_err=errors.get(prefix + "lsf_shape"),
         wave_shift=_shift(state),
         wave_shift_err=_shift_err(item.spec, errors, prefix),
+        stellar_shift=state.stellar_shift,
+        stellar_shift_err=errors.get("stellar_shift") if item.spec.fit_stellar_shift else None,
         stellar_treatment=str(stellar_treatment),
         converged=converged,
         n_eval=n_eval,

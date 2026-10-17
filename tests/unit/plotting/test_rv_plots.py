@@ -124,3 +124,17 @@ def test_pipeline_rv_figures(tmp_path: Path, source: str, plot_ccf: bool) -> Non
         if plot_ccf:
             expected.insert(0, "ccf/e1_ccf.png")
     assert names == sorted(expected)
+
+
+def test_out_false_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ccf = _ccf_file(tmp_path / "CCF_e1.npz")
+    measured = _rv_table(tmp_path / "T_rv.csv")
+    monkeypatch.chdir(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    for fig, _ in (
+        plot_ccf_diagnostics(ccf, out=False, max_orders=2),
+        plot_rv_timeseries(measured, out=False),
+        plot_rv_master_vs_perorder(measured, out=False),
+    ):
+        plt.close(fig)
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before

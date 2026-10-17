@@ -9,7 +9,8 @@ All three read products written by :mod:`gtellcorr.preprocessing.rv`:
 * :func:`plot_rv_master_vs_perorder` - the same two RV estimates against each
   other, a quick consistency check.
 
-Each function returns ``(figure, axes)`` and writes a PNG when ``out`` is given.
+Each function returns ``(figure, axes)`` and writes a PNG when ``out`` is a path
+(``None`` or ``False``: no file).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from __future__ import annotations
 import csv
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,9 +41,14 @@ def load_ccf_data(path: str | os.PathLike[str]) -> dict[str, Any]:
         return {key: data[key].copy() for key in data.files}
 
 
-def _save(fig: Any, out: str | os.PathLike[str] | None) -> None:
-    """Write *fig* to *out* (creating its directory); nothing if ``None``."""
-    if out is not None:
+#: Where a figure is written: a path, or ``None`` / ``False`` for no file (``False`` as
+#: for the other figures of :mod:`gtellcorr.plotting`).
+Out = str | os.PathLike[str] | Literal[False] | None
+
+
+def _save(fig: Any, out: Out) -> None:
+    """Write *fig* to *out* (creating its directory); nothing if ``None`` or ``False``."""
+    if out is not None and out is not False:
         path = Path(out)
         path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=130)
@@ -51,7 +57,7 @@ def _save(fig: Any, out: str | os.PathLike[str] | None) -> None:
 def plot_ccf_diagnostics(
     ccf_path: str | os.PathLike[str],
     *,
-    out: str | os.PathLike[str] | None = None,
+    out: Out = None,
     title: str | None = None,
     max_orders: int | None = None,
 ) -> tuple[Any, Any]:
@@ -127,7 +133,7 @@ def _column(rows: list[dict[str, str]], key: str) -> Array:
 def plot_rv_timeseries(
     rv_table: str | os.PathLike[str],
     *,
-    out: str | os.PathLike[str] | None = None,
+    out: Out = None,
     title: str | None = None,
 ) -> tuple[Any, Any]:
     """Exposure RVs against time (top) and master-CCF minus per-order mean (bottom).
@@ -170,7 +176,7 @@ def plot_rv_timeseries(
 def plot_rv_master_vs_perorder(
     rv_table: str | os.PathLike[str],
     *,
-    out: str | os.PathLike[str] | None = None,
+    out: Out = None,
     title: str | None = None,
 ) -> tuple[Any, Any]:
     """Master-CCF RV against the per-order weighted-mean RV, with the 1:1 line.

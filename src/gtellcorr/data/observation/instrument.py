@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -30,6 +30,7 @@ __all__ = [
     "instruments",
     "load_instrument_file",
     "read_resolution",
+    "start_resolution",
 ]
 
 
@@ -75,14 +76,15 @@ class SpectralSpec(ConfigGroup):
     """HDU with uncertainties (echelle readers)."""
     blaze: str | None = None
     """HDU to divide out; ``None`` = flux already de-blazed."""
+    quality: str | None = None
+    """HDU of pixel quality flags (echelle readers); pixels with a non-zero flag are
+    left out, as pixels without usable flux. ``None`` = no flags."""
     columns: Mapping[str, str] = field(default_factory=dict)
     """Table columns (table readers): ``wave``, ``flux``, ``variance``, ``mask``."""
     uncertainty_kind: Literal["var", "err"] = "var"
     """Uncertainties given as variances (``var``) or standard deviations (``err``)."""
     wave_unit: Literal["A", "nm"] = "A"
     """Unit of the delivered wavelengths."""
-    airmass_card: str = "AIRMASS"
-    """Primary-header card read by the spectrum reader for the airmass."""
     wavelength_range_nm: tuple[float, float] | None = None
     """Approximate spectral coverage [nm]."""
     order_windows_nm: Windows | None = None
@@ -113,8 +115,10 @@ class InstrumentSpec(ConfigGroup):
     """Short site tag used in output directory names, e.g. ``KPNO``."""
     default_site: str | None = None
     """Site registry name used for coordinates missing from the headers."""
-    channels: Mapping[str, str]
-    """Channel (fibre / arm) name -> file-name glob of its reduced spectra."""
+    channels: Mapping[str, str | tuple[str, ...]]
+    """Channel (fibre / arm) name -> file-name glob of its reduced spectra, or a list of
+    globs when the same product is delivered under several names (e.g. pipeline and
+    archive files)."""
     default_channel: str | None = None
     """Channel used when none is requested; required if there are several channels."""
     science_filter: tuple[str, str] | None = None
@@ -138,6 +142,11 @@ class InstrumentSpec(ConfigGroup):
             self.fail("name", f"must have the form 'telescope/instrument', got {self.name!r}")
         if not self.channels:
             self.fail("channels", "at least one channel is required")
+        for name, patterns in self.channels.items():
+            if isinstance(patterns, str):
+                patterns = (patterns,)
+            if not patterns or not all(patterns):
+                self.fail(f"channels.{name}", "needs at least one non-empty file-name glob")
         if self.default_channel is not None and self.default_channel not in self.channels:
             self.fail("default_channel", f"{self.default_channel!r} is not one of the channels")
         if len(self.channels) > 1 and self.default_channel is None:
@@ -151,15 +160,16 @@ class InstrumentSpec(ConfigGroup):
                     f"anchor_orders.{molecule}", f"orders {unknown} are not instrument orders"
                 )
 
-    def channel_glob(self, channel: str | None) -> tuple[str, str]:
-        """``(channel, glob)`` for *channel* (``None`` = the default / only channel)."""
+    def channel_patterns(self, channel: str | None) -> tuple[str, tuple[str, ...]]:
+        """``(channel, globs)`` for *channel* (``None`` = the default / only channel)."""
         if channel is None:
             channel = self.default_channel or next(iter(self.channels))
         if channel not in self.channels:
             raise DataError(
                 f"{self.name}: unknown channel {channel!r}; channels are {', '.join(self.channels)}"
             )
-        return channel, self.channels[channel]
+        patterns = self.channels[channel]
+        return channel, (patterns,) if isinstance(patterns, str) else tuple(patterns)
 
 
 instruments: Registry[InstrumentSpec] = Registry(
@@ -259,3 +269,28 @@ def read_resolution(header: Any, spec: InstrumentSpec) -> float:
     raise DataError(
         f"{spec.name}: header {key}={raw!r} is not in the resolution map {dict(res.map)}"
     )
+
+
+def start_resolution(
+    exposures: Iterable[Any], spec: InstrumentSpec, lsf_resolution: float | None = None
+) -> float:
+    """Resolving power of what a run prepares once for all its exposures: the stellar
+    template, the strong-telluric mask and the telluric windows of the RV measurement.
+
+    It is the start (or fixed) R of the fit: *lsf_resolution* (the ``lsf.resolution``
+    setting) if given, else the exposures' common header R (e.g. the PEPSI fibre), else
+    the instrument default. Without *lsf_resolution* the exposures must share one header
+    R; otherwise :class:`~gtellcorr.errors.ConfigError`.
+    """
+    if lsf_resolution is not None:
+        return float(lsf_resolution)
+    values = sorted({float(e.resolution) for e in exposures})
+    if not values:
+        return float(spec.resolution.default)
+    if len(values) > 1:
+        raise ConfigError(
+            f"the exposures have different resolving powers {values}: the stellar template "
+            "and the telluric masks prepared for a run have one resolving power; fit them in "
+            "separate runs, or set lsf.resolution (the start R of the fit, used for them)"
+        )
+    return values[0]

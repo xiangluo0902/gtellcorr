@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -158,3 +160,37 @@ def test_a_supplied_model_must_use_the_observations_formula(tmp_path: Path) -> N
         _Obs([exposure]), config, output_dir=tmp_path / "out", settings=settings,
         telluric_model=Ciddor(),  # type: ignore[arg-type]
     )  # fmt: skip
+
+
+def test_result_files_name_no_local_directory(tmp_path: Path) -> None:
+    """RUN_METADATA and run_manifest.json give paths relative to the output directory or
+    the run directory, and the resources outside them by name only."""
+    model = SimpleNamespace(
+        resources=SimpleNamespace(
+            bundle=tmp_path / "resources" / "lblrtm" / "gnu_double_v4",
+            local_fingerprint="fp",
+            setup_id="setup",
+        ),
+        timeout_s=60.0,
+        config=SimpleNamespace(wave_margin_nm=20.0),
+        tau_cache=tmp_path / "caches" / "tau_cache",
+    )
+    pipe, exposure = _pipeline(tmp_path)
+    pipe._model = model  # type: ignore[assignment]
+    pipe.stellar = SimpleNamespace(rv_table=pipe.layout.rv_table)  # type: ignore[assignment]
+    exposure = SimpleNamespace(
+        path=exposure.path, time_utc=exposure.time_utc, airmass=1.2, airmass_source="fits_header"
+    )
+    meta = pipe._run_metadata(exposure, [], {})  # type: ignore[arg-type]
+    assert meta["run_root"] == "T/KPNO_NEID/20220213"
+    assert meta["rv_table"] == pipe.layout.rv_table.relative_to(pipe.layout.root).as_posix()
+    assert meta["lblrtm_bundle"] == "gnu_double_v4"
+    assert meta["tau_cache"] == "tau_cache"
+    assert not any(str(tmp_path) in str(value) for value in meta.values())
+
+    summary = pipe.layout.root / "telluric_corr" / "data" / "summary.csv"
+    pipe.layout.root.mkdir(parents=True, exist_ok=True)
+    pipe._write_manifest(summary, [])
+    text = (pipe.layout.root / "run_manifest.json").read_text()
+    assert json.loads(text)["summary_path"] == "telluric_corr/data/summary.csv"
+    assert str(tmp_path) not in text

@@ -83,6 +83,69 @@ LBLRTM_DOUBLE_COMPILER_FLAGS = (
     "-fdefault-integer-8 -fdefault-real-8 -fdefault-double-8 "
     "-frecord-marker=4 -std=legacy -fallow-argument-mismatch"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePatch:
+    """Exact text replacements in one file of a source tree, pinned by the file's
+    SHA-256 before and after."""
+
+    patch_id: str
+    relative_path: PurePosixPath
+    sha256_before: str
+    sha256_after: str
+    replacements: tuple[tuple[bytes, bytes], ...]
+    reason: str
+
+    def record(self) -> dict[str, str]:
+        """The patch as written to the build recipe."""
+        return {
+            "patch_id": self.patch_id,
+            "file": self.relative_path.as_posix(),
+            "sha256_before": self.sha256_before,
+            "sha256_after": self.sha256_after,
+            "reason": self.reason,
+        }
+
+
+#: The water-continuum module of LBLRTM v12.17 (MT_CKD 4.3) searches its coefficient
+#: table (-20 to 20000 cm-1) without a bound: for a run whose range reaches beyond
+#: 20000 cm-1 (shorter than 500 nm) it reads past the end of the table, and the
+#: process dies with SIGBUS when the table ends at an unmapped page, or it uses values
+#: from beyond the table near 20000 cm-1. The patch stops both searches at the last
+#: coefficient and skips the interpolation term past the end of the coefficients (its
+#: weight is zero there), as the MT_CKD 3.5 code of LBLRTM v12.11 did. Ranges that
+#: stay below 20000 cm-1 take the same code path as before.
+MT_CKD_H2O_BOUNDS_PATCH = SourcePatch(
+    patch_id="mt_ckd_h2o_bounds",
+    relative_path=PurePosixPath("src/mt_ckd_h2o_module.f90"),
+    sha256_before="d95d01074c6b188d7c37efd775f955ed33b84a83fa61e262ef8e917571a89615",
+    sha256_after="5408b78314183411a532bebf0b2897a9504cc1a4e9ef0cf90913b8f336bbcca1",
+    replacements=(
+        (
+            b"   do while (wvn(i) <= (wv1abs-2*dvc))\n",
+            b"   do while (i < ncoeffin .and. wvn(i) <= (wv1abs-2*dvc))\n",
+        ),
+        (
+            b"   do while (wvn(i) < (wv2abs+2*dvc))\n",
+            b"   do while (i < ncoeffin .and. wvn(i) < (wv2abs+2*dvc))\n",
+        ),
+        (
+            b"      CONTI = -A(J-1)*B1+A(J)*(1.-C+B2)+A(J+1)*(C+B1)-A(J+2)*B2\n",
+            b"      IF (J+2 .LE. SIZE(A)) THEN\n"
+            b"         CONTI = -A(J-1)*B1+A(J)*(1.-C+B2)+A(J+1)*(C+B1)-A(J+2)*B2\n"
+            b"      ELSE\n"
+            b"         CONTI = -A(J-1)*B1+A(J)*(1.-C+B2)+A(J+1)*(C+B1)\n"
+            b"      END IF\n",
+        ),
+    ),
+    reason=(
+        "MT_CKD 4.3 water continuum: bound the coefficient-table search at 20000 cm-1 "
+        "(out-of-bounds read, SIGBUS, for runs extending below 500 nm)"
+    ),
+)
+LBLRTM_SOURCE_PATCHES: tuple[SourcePatch, ...] = (MT_CKD_H2O_BOUNDS_PATCH,)
+
 _MAKE_TARGET_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+:\s*$")
 _UNSAFE_COMMAND_CHARACTER_PATTERN = re.compile(r"[\s\x00\r\n]")
 _UNSAFE_MAKE_SHELL_PATH_PATTERN = re.compile(r"[^A-Za-z0-9_./:+@=-]")
@@ -940,6 +1003,36 @@ def _patch_osx_gnu_target(
         raise ResourceBuildError(f"cannot patch build makefile {makefile_path}: {exc}") from exc
 
 
+def apply_source_patch(source_root: Path, patch: SourcePatch) -> None:
+    """Apply *patch* to *source_root*; the file must have the recorded SHA-256 before
+    and after, and every replaced text must occur exactly once."""
+    path = source_root / Path(*patch.relative_path.parts)
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ResourceBuildError(f"cannot read {path} to apply {patch.patch_id}: {exc}") from exc
+    if sha256(data).hexdigest() != patch.sha256_before:
+        raise ResourceBuildError(
+            f"{path} is not the expected source (SHA-256 differs); patch {patch.patch_id} "
+            "was written for the pinned LBLRTM v12.17 archive"
+        )
+    for old, new in patch.replacements:
+        count = data.count(old)
+        if count != 1:
+            raise ResourceBuildError(
+                f"patch {patch.patch_id}: expected one occurrence in {path}, found {count}"
+            )
+        data = data.replace(old, new)
+    if sha256(data).hexdigest() != patch.sha256_after:
+        raise ResourceBuildError(
+            f"patch {patch.patch_id}: patched {path} has an unexpected SHA-256"
+        )
+    try:
+        path.write_bytes(data)
+    except OSError as exc:
+        raise ResourceBuildError(f"cannot write {path} for {patch.patch_id}: {exc}") from exc
+
+
 def _write_lblrtm_addlibs(
     build_directory: Path,
     toolchain: BuildToolchain,
@@ -1033,11 +1126,14 @@ def _build_lblrtm(
     toolchain: BuildToolchain,
     build_spec: LblrtmBuildSpec,
 ) -> Path:
-    """Compile LBLRTM for *build_spec* in *source_root*; return the executable."""
+    """Compile LBLRTM for *build_spec* in *source_root*, with
+    :data:`LBLRTM_SOURCE_PATCHES` applied; return the executable."""
     _clean_archive_build_outputs(
         source_root,
         executable_name=build_spec.executable_name,
     )
+    for patch in LBLRTM_SOURCE_PATCHES:
+        apply_source_patch(source_root, patch)
     build_directory = source_root / "build"
     _patch_osx_gnu_target(
         build_directory / "makefile.common",
@@ -1576,6 +1672,7 @@ def _write_provenance(
         "sdk_name": toolchain.sdk_root.name if toolchain.sdk_root else "none",
         "lnfl_compiler_flags": LNFL_COMPILER_FLAGS.split(),
         "lblrtm_compiler_flags": lblrtm_build_spec.compiler_flags.split(),
+        "lblrtm_source_patches": [patch.record() for patch in LBLRTM_SOURCE_PATCHES],
         "requested_bounds_cm1": [
             REQUESTED_VMIN_CM1,
             REQUESTED_VMAX_CM1,

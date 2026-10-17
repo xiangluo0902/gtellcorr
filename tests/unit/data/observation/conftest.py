@@ -83,9 +83,14 @@ def make_espresso(tmp_path: Path) -> Callable[..., Path]:
         }
         primary.update(header)
         wave = np.array([np.linspace(5000, 5050, N_PIX), np.linspace(5100, 5150, N_PIX)])
+        flux = np.full((2, N_PIX), 50.0)
+        quality = np.zeros((2, N_PIX), np.uint16)
+        flux[0, -5:], quality[0, -5:] = 0.0, 16384  # S2D grid beyond the extracted order
+        quality[1, 7] = 256  # a bad pixel with ordinary flux
         hdus = {
-            "SCIDATA": np.full((2, N_PIX), 50.0),
+            "SCIDATA": flux,
             "ERRDATA": np.full((2, N_PIX), 2.0),
+            "QUALDATA": quality,
             "WAVEDATA_AIR_BARY": wave,
         }
         return _echelle(tmp_path / name, {k: v for k, v in primary.items() if v is not None}, hdus)

@@ -26,10 +26,13 @@ __all__ = [
 
 def dumps_config(config: RunConfig | FitConfig, *, comments: bool = True) -> str:
     """TOML text of a run or fit configuration, optionally with field comments."""
-    header = (
-        "gtellcorr configuration. Each parameter is documented above its line;\n"
-        "parameters left out keep their default values."
-    )
+    if comments:
+        header = (
+            "gtellcorr configuration. Each parameter is documented above its line;\n"
+            "parameters left out keep their default values."
+        )
+    else:
+        header = "gtellcorr configuration. Parameters left out keep their default values."
     if isinstance(config, RunConfig):
         return dumps(config.to_dict(), source=config if comments else None, header=header)
     return dumps_group("fit", config, comments=comments, header=header)

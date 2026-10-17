@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from gtellcorr.data.observation.instrument import (
     instruments,
     load_instrument_file,
     read_resolution,
+    start_resolution,
 )
 from gtellcorr.errors import ConfigError, DataError
 
@@ -72,12 +74,18 @@ def test_read_resolution_is_strict() -> None:
     assert read_resolution(fits.Header({"R": "75000"}), direct) == 75000.0
 
 
-def test_channel_glob() -> None:
+def test_channel_patterns() -> None:
     pepsi = instruments.get("PEPSI")
-    assert pepsi.channel_glob(None) == ("red", "pepsir.*.dxt.nor")
-    assert pepsi.channel_glob("blue")[0] == "blue"
+    assert pepsi.channel_patterns(None) == ("red", ("pepsir.*.dxt.nor",))
+    assert pepsi.channel_patterns("blue")[0] == "blue"
     with pytest.raises(DataError, match="unknown channel 'green'"):
-        pepsi.channel_glob("green")
+        pepsi.channel_patterns("green")
+    espresso = instruments.get("ESPRESSO")
+    assert espresso.channel_patterns(None) == ("all", ("r.ESPRE.*_S2D_A.fits", "ES_S2DA_*.fits"))
+    with pytest.raises(ConfigError, match=r"channels\.all: needs at least one"):
+        espresso.replace(channels={"all": []})
+    with pytest.raises(ConfigError, match=r"channels\.all: needs at least one"):
+        espresso.replace(channels={"all": ["r.ESPRE.*.fits", ""]})
 
 
 @pytest.mark.parametrize(
@@ -120,3 +128,16 @@ def test_load_instrument_file_errors(tmp_path: Path) -> None:
     bad.write_text(text)
     with pytest.raises(ConfigError, match=r"bad\.toml: instrument\.name: must have the form"):
         load_instrument_file(bad)
+
+
+def test_start_resolution() -> None:
+    """``lsf.resolution`` if given, else the exposures' common header R, else the default."""
+    spec = instruments.get("NEID")
+    same = [SimpleNamespace(resolution=50_000.0)] * 2
+    mixed = [SimpleNamespace(resolution=r) for r in (50_000.0, 130_000.0)]
+    assert start_resolution([], spec) == spec.resolution.default
+    assert start_resolution(same, spec) == 50_000.0
+    assert start_resolution(same, spec, 80_000.0) == 80_000.0
+    assert start_resolution(mixed, spec, 90_000.0) == 90_000.0
+    with pytest.raises(ConfigError, match="different resolving powers"):
+        start_resolution(mixed, spec)

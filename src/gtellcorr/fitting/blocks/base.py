@@ -33,6 +33,9 @@ class ModelState:
     wave_shift: tuple[float, ...] | None = None
     """Chebyshev coefficients [km/s] of the wavelength-solution correction across the
     order; ``None`` = no correction (the model is not resampled)."""
+    stellar_shift: float | None = None
+    """Velocity [km/s] added to the stellar template's placement RV
+    (:mod:`gtellcorr.fitting.stellar_shift`); ``None`` = the template as placed."""
 
     @classmethod
     def initial(cls, spec: FitSpec) -> ModelState:
@@ -42,6 +45,7 @@ class ModelState:
             resolution=float(spec.resolution_init),
             lsf_shape=spec.lsf_shape,
             wave_shift=spec.wave_shift,
+            stellar_shift=spec.stellar_shift,
         )
 
 

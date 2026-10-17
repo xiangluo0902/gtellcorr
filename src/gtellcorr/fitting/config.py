@@ -27,15 +27,24 @@ __all__ = [
 class Continuum(ConfigGroup):
     """Telluric-fit continuum, projected out in every residual evaluation: a polynomial
     in wavelength fitted to ``data / model`` (weights ``w * model**2``, which minimises
-    the fit's own objective over the continuum) with iterative sigma clipping.
+    the fit's own objective over the continuum), optionally with iterative sigma clipping.
     """
 
     order: int = 5
     """Polynomial degree of the continuum."""
     sigma_clip: tuple[float, float] = (2.0, 3.0)
     """Lower and upper sigma-clipping thresholds."""
-    niter: int = 5
-    """Number of clipping iterations."""
+    niter: int = 1
+    """Number of continuum fits per evaluation; 1 = one fit without sigma clipping.
+    With clipping (> 1) the set of clipped pixels changes with the fit parameters, so
+    the objective is not continuous; where the stellar model fits poorly (high chi2)
+    the fit can then stop away from the minimum, depending on the starting values."""
+    output_niter: int = 5
+    """Clipping iterations of the continuum stored with the result (``CONTINUUM``),
+    fitted once more after the fit with the fitted model held fixed. Clipping rejects
+    stellar lines left unmasked and outliers, so the stored continuum sits on the true
+    continuum; it only normalises the stored spectra for display and quality metrics
+    (the corrected flux F / T does not use it). Equal to ``niter``: the fit's own."""
 
     def validate(self) -> None:
         """Non-negative degree, positive thresholds, at least one iteration."""
@@ -45,6 +54,8 @@ class Continuum(ConfigGroup):
             self.fail("sigma_clip", f"thresholds must be positive, got {self.sigma_clip}")
         if self.niter < 1:
             self.fail("niter", f"must be >= 1, got {self.niter}")
+        if self.output_niter < 1:
+            self.fail("output_niter", f"must be >= 1, got {self.output_niter}")
 
 
 #: LSF profile kinds.
@@ -78,7 +89,8 @@ class LSF(ConfigGroup):
     resolution: float | None = None
     """Initial R, and the fixed R when ``fit_resolution`` is false; overrides the
     exposure's header R. ``None`` = the header R (e.g. PEPSI ``FIBER``), else the
-    instrument default. Also the centre of the ``resolution_tol`` bounds."""
+    instrument default. Also the centre of the ``resolution_tol`` bounds, and the R
+    the stellar template is broadened to."""
     resolution_tol: float | None = None
     """R bounds: R0 * (1 -/+ resolution_tol), R0 from the instrument. ``None`` = the
     instrument's ``resolution.fit_tol`` if it has one, else 0.08."""

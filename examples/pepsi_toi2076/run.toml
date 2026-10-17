@@ -1,0 +1,26 @@
+# One PEPSI exposure of the K dwarf TOI-2076 (LBT, 2025-06-19), corrected with the
+# stellar template of the example data. Run from the folder that holds the example
+# data (spectra/, template/), with the example's atmosphere cache:
+#
+#   GTELLCORR_ATMOSPHERE_CACHE=atmos_profiles gtellcorr run run.toml -o out
+#
+# Every parameter left out keeps its default (see `gtellcorr configure`).
+schema_version = 5
+
+[data]
+directory = "spectra"
+instrument = "LBT/PEPSI"
+
+[data.target]
+name = "TOI-2076"
+teff = 5180.0
+logg = 4.608
+feh = 0.0
+vsini_kms = 5.0
+
+[fit]
+stellar = "template"
+
+[fit.stellar_model]
+# synthesised with pySME at the PEPSI resolving power, in the stellar rest frame
+template_file = "template/TOI-2076_pySME-VALD_Teff5180_logg4.608_MH+0.0_vsini5.0kms_R130000_623-742nm_rest.dat"

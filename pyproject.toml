@@ -53,6 +53,8 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.7",
 ]
+# the user manual (docs/manual)
+docs = ["sphinx>=8", "furo", "myst-nb>=1.1"]
 
 [project.urls]
 Homepage = "https://github.com/xiangluo0902/gtellcorr"

@@ -17,6 +17,7 @@ the check against the LBLRTM setup description shipped with gtellcorr (see
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -52,6 +53,15 @@ __all__ = [
 log = get_logger(__name__)
 
 LOCAL_MANIFEST = "gtellcorr_manifest.json"
+#: LBLRTM source patches that ``gtellcorr resources build`` applies. A bundle built
+#: without one still runs, with a warning (see :func:`missing_source_patches`).
+REQUIRED_SOURCE_PATCHES = {
+    "mt_ckd_h2o_bounds": (
+        "LBLRTM runs whose range crosses 500 nm can crash (SIGBUS) and give slightly "
+        "different water continua near 500 nm from run to run"
+    ),
+}
+_WARNED_BUNDLES: set[Path] = set()
 TOOLCHAIN_DIR = "lblrtm-toolchain"
 _LBLRTM_PACKAGE = Path(__file__).resolve().parents[1] / "lblrtm"
 
@@ -137,6 +147,16 @@ def verify(
         raise
     except (LblrtmError, LblrtmResourceError, OSError) as exc:
         raise ResourceError(f"LBLRTM bundle {root} failed validation: {exc}") from exc
+    missing = missing_source_patches(root, manifest.data)
+    if missing and root not in _WARNED_BUNDLES:
+        _WARNED_BUNDLES.add(root)
+        log.warning(
+            "LBLRTM bundle %s was built without the source patches %s: %s. Rebuild it with "
+            "'gtellcorr resources build' (its optical-depth caches are then rebuilt).",
+            root,
+            ", ".join(missing),
+            "; ".join(REQUIRED_SOURCE_PATCHES[p] for p in missing),
+        )
     return VerifiedResources(
         bundle=root,
         resources=resources,
@@ -144,6 +164,18 @@ def verify(
         setup_id=str(setup["setup_id"]),
         description=str(setup["description"]),
     )
+
+
+def missing_source_patches(root: Path, manifest: Any) -> list[str]:
+    """The :data:`REQUIRED_SOURCE_PATCHES` that the bundle's build recipe (checked
+    against the manifest by the bundle validation) does not record."""
+    record = manifest.get("products", {}).get("build_recipe") or {}
+    try:
+        recipe = json.loads((root / str(record["relative_path"])).read_text(encoding="utf-8"))
+        applied = {str(p.get("patch_id")) for p in recipe.get("lblrtm_source_patches", [])}
+    except (KeyError, OSError, ValueError, AttributeError, TypeError):
+        applied = set()
+    return [p for p in REQUIRED_SOURCE_PATCHES if p not in applied]
 
 
 # ---------------------------------------------------------------------------

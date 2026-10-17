@@ -56,6 +56,11 @@ class _LblrtmForwardContext:
     reference_atmosphere: Mapping[str, object] | None
     vacuum_air_formula: str
     """Vacuum-to-air formula of the cache grid (that of the observations)."""
+    continuum_mode: str = "full"
+    """LBLRTM continua in the cache: ``full`` (in the fixed component), ``scaled``
+    (following the fitted columns) or ``none``."""
+    lblrtm_workers: int | None = None
+    """LBLRTM runs of a cache made at the same time (``None``: automatic)."""
 
 
 _LBLRTM_FORWARD_CONTEXT: ContextVar[_LblrtmForwardContext | None] = ContextVar(
@@ -74,9 +79,12 @@ def use_lblrtm_forward_context(
     lblrtm_verbose=None,
     reference_atmosphere=None,
     vacuum_air_formula=None,
+    continuum_mode=None,
+    lblrtm_workers=None,
 ):
     """Bind validated LBLRTM resources, the cache directory and the run settings for
-    the duration of the ``with`` block."""
+    the duration of the ``with`` block (``lblrtm_workers=None``: as many LBLRTM runs
+    at the same time as chosen automatically)."""
 
     if not isinstance(resources, ResolvedLblrtmResourceFiles):
         raise TypeError("resources must be a ResolvedLblrtmResourceFiles instance")
@@ -100,6 +108,11 @@ def use_lblrtm_forward_context(
         raise ValueError(
             f"vacuum_air_formula must be one of {sorted(_SUPPORTED_WAVELENGTH_FORMULAS)}, "
             f"got {resolved_formula!r}"
+        )
+    resolved_continuum_mode = str(_required(continuum_mode, "continuum_mode"))
+    if resolved_continuum_mode not in ("full", "scaled", "none"):
+        raise ValueError(
+            f"continuum_mode must be 'full', 'scaled' or 'none', got {resolved_continuum_mode!r}"
         )
     if reference_atmosphere is None:
         reference_snapshot = None
@@ -137,6 +150,8 @@ def use_lblrtm_forward_context(
             lblrtm_verbose=resolved_lblrtm_verbose,
             reference_atmosphere=reference_snapshot,
             vacuum_air_formula=resolved_formula,
+            continuum_mode=resolved_continuum_mode,
+            lblrtm_workers=lblrtm_workers,
         )
     )
     try:
@@ -238,7 +253,7 @@ def _build_or_load_tau_cache(
             resources=context.resources,
         )
 
-    cache_candidate.build(fit_molecules=fit_molecules)
+    cache_candidate.build(fit_molecules=fit_molecules, workers=context.lblrtm_workers)
     if cache_candidate.cache_key != cache_key or cache_candidate.cache_metadata != cache_metadata:
         raise RuntimeError(
             "internal error: the built optical-depth cache has a different key than planned"
@@ -320,7 +335,7 @@ def _prepare_order_cache_request(
         "resources": context.resources,
         "wavelength_conversion_formula": context.vacuum_air_formula,
         "wave_margin_nm": 0.0,
-        "continuum_mode": "none",
+        "continuum_mode": context.continuum_mode,
         "timeout_s": context.timeout_s,
         "verbose": bool(lblrtm_verbose),
     }
@@ -413,3 +428,15 @@ def transmittance(cache: OrderCache, scales: dict[str, float]) -> tuple[np.ndarr
     }
     transmission = cache.tau_cache.transmittance(**columns)
     return cache.wave_nm, np.asarray(transmission, dtype=np.float64)
+
+
+def continuum_transmittance(cache: OrderCache, scales: dict[str, float]) -> np.ndarray | None:
+    """Transmission of the LBLRTM continua alone on the cache grid for
+    relative-column multipliers (included in :func:`transmittance`), or ``None``
+    when the cache holds no continua."""
+
+    columns = {
+        molecule: float(scales[molecule]) * cache.ref_column[molecule] for molecule in scales
+    }
+    continuum = cache.tau_cache.continuum_transmittance(**columns)
+    return None if continuum is None else np.asarray(continuum, dtype=np.float64)

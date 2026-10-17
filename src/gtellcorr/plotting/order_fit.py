@@ -91,7 +91,14 @@ def _load_saved_pca_model_from_result_dict(result_path: str, result: dict, compo
 
 
 def plot_order_fit(
-    result_path: str, *, order=None, out=None, ax=None, plot_pca=False, pca_component=None
+    result_path: str,
+    *,
+    order=None,
+    out=None,
+    ax=None,
+    plot_pca=False,
+    pca_component=None,
+    flux_ylim=(0.0, 1.25),
 ):
     """Plot one order's fit from an exposure-level FITS ``result_path``.
 
@@ -99,8 +106,12 @@ def plot_order_fit(
           False → do not save.  ax : a length-2 array of axes to draw into
           (shares them instead of making a figure).  If ``plot_pca`` is True and
           the result file carries saved PCA telluric models, add C*T_pca and
-          obs/(C*T_pca).  Returns ``(fig, axes)``.
+          obs/(C*T_pca).  ``flux_ylim`` is the ``(bottom, top)`` range of the
+          upper (flux) panel.  Returns ``(fig, axes)``.
     """
+    flux_lo, flux_hi = (float(v) for v in flux_ylim)
+    if not flux_lo < flux_hi:
+        raise ValueError(f"flux_ylim must be increasing, got {flux_ylim}")
     # One order of the exposure-level result FITS as a plain dictionary.
     # Instrument name, target, wavelength range, fitted molecules, and
     # stellar-treatment route all come from stored metadata rather than from config
@@ -158,8 +169,9 @@ def plot_order_fit(
     # user bad-region, and strong telluric-core exclusions.
     if excl.any():
         ax[0].fill_between(
-            x, 0, 1.3, where=excl, color="0.85", step="mid", zorder=0, label="masked fit pixels"
-        )
+            x, flux_lo, flux_hi, where=excl, color="0.85", step="mid", zorder=0,
+            label="masked fit pixels",
+        )  # fmt: skip
 
     # Route-dependent upper panel.  In the 'mask' route there is no stellar
     # template, so the fitted model is C*T.  In the template route the stellar
@@ -192,7 +204,7 @@ def plot_order_fit(
             label=f"PCA telluric  C·T_pca{pca_k}",
         )
     ax[0].plot(x, C, color="#0072B2", lw=0.85, ls="--", zorder=4, label="best-fit continuum C")
-    ax[0].set_ylim(0, 1.25)
+    ax[0].set_ylim(flux_lo, flux_hi)
     ax[0].set_ylabel("flux")
     ax[0].legend(fontsize=8, loc="lower left", ncol=2)
     ax[0].set_title(head)

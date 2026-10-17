@@ -4,7 +4,8 @@ Fitted orders carry the fit parameters and the reduced chi-square; skipped order
 carry only their status. ``wavesol_coeffs`` is the JSON list of wavelength-solution
 correction coefficients [km/s], empty when no correction was fitted. ``converged`` (``true`` /
 ``false``) and ``n_eval`` are the optimiser's outcome (in a joint fit, the joint
-fit's); both are empty for orders that were not fitted.
+fit's); both are empty for orders that were not fitted. ``stellar_shift`` is the
+fitted template velocity beyond the placement RV [km/s], empty when not fitted.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ SUMMARY_COLUMNS = (
     "exposure", "order", "wave_lo", "wave_hi", "time_utc", "molecules", "relcol", "resolution",
     "chi2_reduced", "dof_mask_removed", "chi2_reduced_order", "dof_mask_removed_order",
     "chi2_reduced_joint", "dof_mask_removed_joint", "masked_frac", "lsf_shape", "status",
-    "elapsed_s", "wavesol_coeffs", "converged", "n_eval",
+    "elapsed_s", "wavesol_coeffs", "converged", "n_eval", "stellar_shift",
 )  # fmt: skip
 
 
@@ -45,6 +46,12 @@ def _outcome(result: Any) -> list[str]:
     ]
 
 
+def _stellar_shift(result: Any) -> str:
+    """``stellar_shift`` cell [km/s], ``""`` when the template was not moved."""
+    value = getattr(result, "stellar_shift", None)
+    return "" if value is None else f"{float(value):.5f}"
+
+
 def shift_cell(values: Any) -> str:
     """``wavesol_coeffs`` cell: JSON list of coefficients [km/s], ``""`` without a correction."""
     if values is None:
@@ -60,12 +67,12 @@ def single_row(
     head = [exposure, int(result.order), f"{x.min():.1f}", f"{x.max():.1f}", time_iso,
             json.dumps(list(result.relcol.keys()))]  # fmt: skip
     if not fitted:
-        return [*head, *[""] * 10, result.status, f"{elapsed:.1f}", "", "", ""]
+        return [*head, *[""] * 10, result.status, f"{elapsed:.1f}", "", "", "", ""]
     return [
         *head, json.dumps(result.relcol), f"{result.resolution:.0f}",
         result.chi2_reduced, result.dof_mask_removed, result.chi2_reduced, result.dof_mask_removed,
         "", "", _masked(result), _shape(result), result.status, f"{elapsed:.1f}",
-        shift_cell(result.wave_shift), *_outcome(result),
+        shift_cell(result.wave_shift), *_outcome(result), _stellar_shift(result),
     ]  # fmt: skip
 
 
@@ -74,7 +81,7 @@ def skipped_row(
 ) -> list[Any]:
     """Row of an order that could not be read (status ``ERROR:<exception type>``)."""
     kind = type(error).__name__ if error is not None else "ValueError"
-    return [exposure, int(order), "", "", time_iso, *[""] * 11, f"ERROR:{kind}", "", "", "", ""]
+    return [exposure, int(order), "", "", time_iso, *[""] * 11, f"ERROR:{kind}", "", "", "", "", ""]
 
 
 def joint_row(exposure: str, result: Any, time_iso: str, elapsed: float) -> list[Any]:
@@ -88,5 +95,5 @@ def joint_row(exposure: str, result: Any, time_iso: str, elapsed: float) -> list
         result.chi2_reduced_order, result.dof_mask_removed_order,
         result.chi2_reduced_joint, result.dof_mask_removed_joint,
         _masked(result), _shape(result), result.status, f"{elapsed:.1f}",
-        shift_cell(result.wave_shift), *_outcome(result),
+        shift_cell(result.wave_shift), *_outcome(result), _stellar_shift(result),
     ]  # fmt: skip

@@ -7,7 +7,9 @@ repeated per order. Adding a fit parameter means writing a block and registering
 it (entry-point group ``gtellcorr.parameter_blocks``); the solver is unchanged.
 
 With the built-in blocks theta = ``[relcol..., resolution?, lsf_shape?]``, followed
-by the wavelength-solution correction coefficients when ``wavelength.fit`` is set.
+by the template velocity when ``stellar_model.fit_shift`` is set (``template``
+treatment) and the wavelength-solution correction coefficients when
+``wavelength.fit`` is set.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from gtellcorr.fitting.blocks.builtin import (
     RelcolBlock,
     ResolutionBlock,
     SharedWaveShiftBlock,
+    StellarShiftBlock,
     WaveShiftBlock,
 )
 from gtellcorr.registry import Registry
@@ -30,6 +33,7 @@ __all__ = [
     "ResolutionBlock",
     "Scope",
     "SharedWaveShiftBlock",
+    "StellarShiftBlock",
     "WaveShiftBlock",
     "default_blocks",
     "parameter_blocks",
@@ -44,15 +48,18 @@ parameter_blocks.register("resolution", ResolutionBlock)
 parameter_blocks.register("lsf_shape", LsfShapeBlock)
 parameter_blocks.register("wave_shift", WaveShiftBlock)
 parameter_blocks.register("shared_wave_shift", SharedWaveShiftBlock)
+parameter_blocks.register("stellar_shift", StellarShiftBlock)
 
 
 def default_blocks() -> tuple[ParameterBlock, ...]:
-    """The built-in blocks in theta order: relcol, resolution, LSF shape, then the
-    wavelength-solution corrections (exposure-wide, then per order)."""
+    """The built-in blocks in theta order: relcol, resolution, LSF shape, the
+    exposure-wide wavelength-solution correction, the template velocity, then the
+    per-order wavelength-solution correction."""
     return (
         RelcolBlock(),
         ResolutionBlock(),
         LsfShapeBlock(),
         SharedWaveShiftBlock(),
+        StellarShiftBlock(),
         WaveShiftBlock(),
     )

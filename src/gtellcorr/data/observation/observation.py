@@ -2,7 +2,7 @@
 
 Exposures are gathered in five steps:
 
-1. glob the channel's file pattern in the directory;
+1. glob the channel's file patterns in the directory;
 2. keep science frames (``science_filter``; a frame without the card passes);
 3. keep files whose name contains an ``include`` token (if any), then drop files
    whose name contains an ``exclude`` token;
@@ -10,6 +10,9 @@ Exposures are gathered in five steps:
    an exposure without a usable epoch is an error;
 5. an airmass that is missing, non-finite or < 1 is replaced by 1.5 and flagged
    (``airmass_source = "fallback_constant"``).
+
+Two selected files with the same epoch (e.g. a pipeline file and its archive copy)
+are an error.
 
 Site priority: explicit ``site`` > header > ``fallback_site`` > instrument default site.
 """
@@ -36,6 +39,7 @@ from gtellcorr.data.observation.instrument import (
     InstrumentSpec,
     identify,
     instruments,
+    load_instrument_file,
     read_resolution,
 )
 from gtellcorr.data.observation.readers import readers
@@ -63,6 +67,12 @@ class Exposure:
     site_sources: dict[str, str]
     """For lat/lon/alt: ``header``, ``override``, ``fallback`` or ``instrument_default``."""
     airmass: float
+    """Airmass of the exposure, as read from the header (one value, held fixed in the
+    fit). The headers differ in what it means: PEPSI's ``AIRMASS`` is the value at
+    the end of the exposure, ESPRESSO's ``TEL AIRM START`` the start. Over an
+    exposure of a few minutes at airmass ~1.5-2 the airmass changes by up to ~1-2 %,
+    and the fitted columns absorb that difference (the airmass and the columns are
+    degenerate)."""
     airmass_source: str
     """``fits_header`` or ``fallback_constant``."""
     weather: OnSiteWeather
@@ -111,16 +121,20 @@ def _is_science(header: Any, spec: InstrumentSpec) -> bool:
     return not value or value == str(want).strip().lower()
 
 
+def _glob(directory: Path, patterns: Iterable[str]) -> list[Path]:
+    """Files of *directory* matching any of *patterns*, sorted."""
+    return sorted({Path(p) for pattern in patterns for p in glob.glob(str(directory / pattern))})
+
+
 def _identify_directory(directory: Path) -> InstrumentSpec:
     """The one instrument whose file patterns and header rules match *directory*."""
     candidates = []
     for name in instruments.names():
         spec = instruments.get(name)
-        files = sorted(
-            {p for pattern in spec.channels.values() for p in glob.glob(str(directory / pattern))}
-        )
+        patterns = [p for channel in spec.channels for p in spec.channel_patterns(channel)[1]]
+        files = _glob(directory, patterns)
         if files:
-            candidates.append((spec, Path(files[0])))
+            candidates.append((spec, files[0]))
     if not candidates:
         raise DataError(f"{directory}: no file matches any registered instrument's file patterns")
     matched = [spec for spec, first in candidates if spec is identify_or_none(_open_header(first))]
@@ -229,7 +243,7 @@ class Observation:
             spec = instruments.get(instrument)
         else:
             spec = _identify_directory(root)
-        channel_name, pattern = spec.channel_glob(channel)
+        channel_name, patterns = spec.channel_patterns(channel)
 
         override = resolve_site(site) if site is not None else None
         if fallback_site is not None:
@@ -244,7 +258,7 @@ class Observation:
             tokens = (*(tokens or ()), *read_token_file(include_file))
 
         exposures = []
-        for path in sorted({Path(p) for p in glob.glob(str(root / pattern))}):
+        for path in _glob(root, patterns):
             if tokens is not None and not _contains_any(path.name, tokens):
                 continue
             if _contains_any(path.name, exclude):
@@ -255,6 +269,16 @@ class Observation:
             exposures.append(_exposure(path, header, spec, override, fallback, fallback_source))
         if not exposures:
             raise DataError(f"{root}: no {spec.name} ({channel_name}) exposures selected")
+        by_epoch: dict[datetime, list[str]] = {}
+        for e in exposures:
+            by_epoch.setdefault(e.time_utc, []).append(e.name)
+        duplicates = [names for names in by_epoch.values() if len(names) > 1]
+        if duplicates:
+            raise DataError(
+                f"{root}: files with the same exposure epoch: "
+                + "; ".join(" and ".join(names) for names in duplicates)
+                + " (the same exposure twice?); keep one, or select with include / exclude"
+            )
         n_fallback = sum(e.airmass_source == "fallback_constant" for e in exposures)
         if n_fallback:
             log.warning(
@@ -274,9 +298,12 @@ class Observation:
     @classmethod
     def from_config(cls, config: DataConfig) -> Observation:
         """Build from the ``[data]`` table of a run configuration."""
+        instrument: str | InstrumentSpec | None = config.instrument
+        if config.instrument_file is not None:
+            instrument = load_instrument_file(Path(config.instrument_file).expanduser())
         return cls.from_directory(
             config.directory,
-            instrument=config.instrument,
+            instrument=instrument,
             channel=config.channel,
             site=config.site,
             fallback_site=config.fallback_site,

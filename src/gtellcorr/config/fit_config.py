@@ -46,9 +46,10 @@ class FitConfig(ConfigGroup):
     """How stellar lines are handled: ``mask`` excludes them from the telluric fit;
     ``template`` models them with a stellar template (synthesised, or
     ``stellar_model.template_file``) placed at each exposure's RV."""
-    relcol_mode: Literal["single_order", "joint_orders"] = "single_order"
-    """``single_order``: each order fits its own relcols; ``joint_orders``: one set of
-    relcols per exposure, shared by the fit orders and applied to all orders."""
+    relcol_mode: Literal["single_order", "joint_orders"] = "joint_orders"
+    """``joint_orders``: one set of relcols per exposure, shared by the fit orders and
+    applied to all orders; ``single_order``: each order fits its own relcols (useful for
+    looking at one order on its own)."""
     on_missing_stellar_data: Literal["generate", "error"] = "generate"
     """What to do when a stellar product (template, RV table, stellar-line masks) is
     not on disk yet: ``generate`` builds it, ``error`` stops with a message that says

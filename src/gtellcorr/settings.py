@@ -11,6 +11,7 @@ location with ``GTELLCORR_SETTINGS``)::
     resource_root = "/data/gtellcorr/resources"
     cache_dir = "/scratch/gtellcorr-cache"
     lblrtm_timeout_s = 900
+    lblrtm_workers = 4          # LBLRTM runs at a time; "auto" (default) or >= 1
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ ENV_VARS: Mapping[str, str] = {
     "cache_dir": "GTELLCORR_CACHE",
     "credentials_file": "GTELLCORR_CREDENTIALS",
     "lblrtm_timeout_s": "GTELLCORR_LBLRTM_TIMEOUT",
+    "lblrtm_workers": "GTELLCORR_LBLRTM_WORKERS",
     "stellar_linelist": "GTELLCORR_STELLAR_LINELIST",
     "ispec_dir": "GTELLCORR_ISPEC_DIR",
 }
@@ -56,6 +58,7 @@ def _default_values() -> dict[str, Any]:
         "tau_cache": None,
         "credentials_file": None,
         "lblrtm_timeout_s": 600.0,
+        "lblrtm_workers": None,
         "stellar_linelist": None,
         "ispec_dir": None,
     }
@@ -82,6 +85,12 @@ class Settings:
     """File holding atmosphere-archive API credentials, if any."""
     lblrtm_timeout_s: float = 600.0
     """Wall-clock limit for one LBLRTM run, in seconds."""
+    lblrtm_workers: int | None = None
+    """LBLRTM runs of an optical-depth cache made at the same time; ``None`` (or
+    ``"auto"``) = the CPUs this process may use, shared between the processes that
+    build caches at once, at most 8
+    (:func:`gtellcorr.telluric.lblrtm.workers.auto_lblrtm_workers`). Each run
+    needs about 1 GB in TMPDIR while it runs. The caches do not depend on it."""
     stellar_linelist: Path | None = None
     """VALD line list for stellar-template synthesis."""
     ispec_dir: Path | None = None
@@ -112,6 +121,7 @@ class Settings:
         if not timeout > 0:
             raise ConfigError(f"lblrtm_timeout_s must be positive, got {self.lblrtm_timeout_s!r}")
         object.__setattr__(self, "lblrtm_timeout_s", timeout)
+        object.__setattr__(self, "lblrtm_workers", _parse_workers(self.lblrtm_workers))
 
     @classmethod
     def load(
@@ -152,6 +162,18 @@ class Settings:
 def _as_path(value: str | os.PathLike[str]) -> Path:
     """Absolute path with ``~`` expanded."""
     return Path(value).expanduser().absolute()
+
+
+def _parse_workers(value: Any) -> int | None:
+    """``lblrtm_workers`` as given in an argument, the environment or the settings
+    file: ``None`` or ``"auto"``, or an integer >= 1."""
+    if value is None or (isinstance(value, str) and value.strip().lower() == "auto"):
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigError(f'lblrtm_workers must be "auto" or an integer >= 1, got {value!r}')
+    return value
 
 
 def _reject_unknown(given: Mapping[str, Any], valid: set[str], *, source: str) -> None:

@@ -4,6 +4,7 @@ import csv
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -14,8 +15,13 @@ from gtellcorr.data.observation import instruments
 from gtellcorr.data.observation.target import Star
 from gtellcorr.data.products.layout import RunLayout
 from gtellcorr.errors import ConfigError, DataError
-from gtellcorr.preprocessing import prepare, telluric_mask
-from gtellcorr.preprocessing.config import StellarModelConfig
+from gtellcorr.preprocessing import prepare, rv, telluric_mask
+from gtellcorr.preprocessing.config import (
+    FitMasks,
+    RVConfig,
+    StellarLineMask,
+    StellarModelConfig,
+)
 from gtellcorr.preprocessing.prepare import StellarProducts
 from gtellcorr.preprocessing.synthesis import (
     StellarParameters,
@@ -98,8 +104,15 @@ def test_treatments(tmp_path: Path) -> None:
     assert (
         excl.tolist() == [False, False, True, True]
         and model is not None
-        and model[0] == pytest.approx(0.3)
+        and np.asarray(model)[0] == pytest.approx(0.3)
     )
+    # the template moved by a velocity: as placed at 0, the same lines moved otherwise
+    from gtellcorr.fitting.stellar_shift import ShiftableStellarModel
+
+    assert isinstance(model, ShiftableStellarModel)
+    assert np.array_equal(model.at(0.0), np.asarray(model))
+    moved = model.at(30.0)  # 30 km/s ~ 0.06 nm at 600 nm
+    assert not np.allclose(moved, np.asarray(model))
     assert products.exposure_rv("a") == 0.0
     with pytest.raises(KeyError, match="no RV-table row"):
         products.exposure_rv("b.fits")
@@ -123,7 +136,10 @@ def test_prepare_reuse_and_policies(tmp_path: Path) -> None:
         tmp_path, target="TOI-2076", site_token="KPNO", instrument="WIYN/NEID", date="D"
     )
     obs = _Obs(tmp_path)
-    fit = FitConfig(on_missing_stellar_data="error")
+    fit = FitConfig(
+        on_missing_stellar_data="error",
+        masks=FitMasks(stellar_linemask=StellarLineMask(blend="off")),
+    )
     path = prepare.template_path(obs, fit, settings, layout)  # type: ignore[arg-type]
     assert path.parent == layout.template_dir and path.name.endswith("_rest.dat")
     with pytest.raises(FileNotFoundError, match="not found"):
@@ -140,6 +156,12 @@ def test_prepare_reuse_and_policies(tmp_path: Path) -> None:
     assert not (tmp_path / "x.dat").exists()
     with open(layout.rv_table, "w", newline="") as fh:
         csv.writer(fh).writerows([["file", "bjd", "rv_kms"], ["a.fits", "1", "2.5"]])
+    # a table without a settings record is measured again unless the settings are
+    # those of earlier versions (band windows, fixed CCF grid)
+    with pytest.raises(DataError, match="no exposures available"):
+        prepare.prepare_stellar(obs, fit.replace(stellar="template"), settings, layout)  # type: ignore[arg-type]
+    current = fit.replace(stellar="template")
+    fit = fit.replace(rv=RVConfig(telluric_mask="bands", ccf_vsini_pad=0.0))
     products = prepare.prepare_stellar(obs, fit.replace(stellar="template"), settings, layout)  # type: ignore[arg-type]
     assert products.status == {"template": "reused", "rv": "reused"} and products.rv_kms == {
         "a.fits": 2.5
@@ -155,8 +177,55 @@ def test_prepare_reuse_and_policies(tmp_path: Path) -> None:
     products = MaskTreatment().prepare(obs, fit, settings, layout)  # type: ignore[arg-type]
     assert products.status["linemask"] == "reused"
     assert TemplateTreatment().prepare(obs, fit, settings, layout).status["rv"] == "reused"  # type: ignore[arg-type]
+    # with a matching record the current settings reuse it too
+    windows = rv.rv_mask_windows(current.rv, current.molecules, current.masks.activity_windows_nm)
+    record = prepare._rv_settings(current, products.template, windows, STAR.vsini_kms, model=False)
+    prepare._rv_settings_record(layout).write_text(json.dumps(record))
+    assert TemplateTreatment().prepare(obs, current, settings, layout).status["rv"] == "reused"  # type: ignore[arg-type]
+    stale = dict(record, ccf_grid_kms=[-1.0, 1.0, 1.0])
+    prepare._rv_settings_record(layout).write_text(json.dumps(stale))
+    with pytest.raises(DataError, match="no exposures available"):
+        TemplateTreatment().prepare(obs, current, settings, layout)  # type: ignore[arg-type]
     obs.target = None
     with pytest.raises(ConfigError, match="target"):
+        prepare.template_path(obs, fit, settings, layout)  # type: ignore[arg-type]
+
+
+def test_synthesised_template_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A synthesised template is broadened to the start R of the fit: ``lsf.resolution``,
+    else the exposures' header R, else the instrument default."""
+    settings = Settings(
+        resource_root=tmp_path, cache_dir=tmp_path, stellar_linelist=tmp_path / "ll"
+    )
+    layout = RunLayout.for_run(
+        tmp_path, target="TOI-2076", site_token="KPNO", instrument="WIYN/NEID", date="D"
+    )
+    built: list[float] = []
+
+    def fake_generate(syn: Any, out_path: Path, *, wave_range_nm: Any, resolution: float,
+                      workers: int) -> Path:  # fmt: skip
+        built.append(resolution)
+        np.savetxt(out_path, np.column_stack([[500.0, 700.0], [1.0, 1.0]]))
+        return Path(out_path)
+
+    monkeypatch.setattr(prepare, "generate_template", fake_generate)
+    obs = _Obs(tmp_path)
+    fit = FitConfig()
+    cases = [
+        ([], None, NEID.resolution.default),  # no exposures: the instrument default
+        ([50_000.0, 50_000.0], None, 50_000.0),  # the exposures' header R
+        ([50_000.0], 80_000.0, 80_000.0),  # lsf.resolution wins
+        ([50_000.0, 130_000.0], 90_000.0, 90_000.0),  # ... also for mixed exposures
+    ]
+    for header_r, lsf_r, expected in cases:
+        obs.exposures = [SimpleNamespace(resolution=r) for r in header_r]
+        cfg = fit.replace(lsf=fit.lsf.replace(resolution=lsf_r))
+        path = prepare.template_path(obs, cfg, settings, layout)  # type: ignore[arg-type]
+        assert f"_R{round(expected)}_" in path.name
+        assert prepare.ensure_template(obs, cfg, settings, layout) == (path, "generated")  # type: ignore[arg-type]
+        assert built[-1] == expected
+    obs.exposures = [SimpleNamespace(resolution=r) for r in (50_000.0, 130_000.0)]
+    with pytest.raises(ConfigError, match="different resolving powers"):
         prepare.template_path(obs, fit, settings, layout)  # type: ignore[arg-type]
 
 

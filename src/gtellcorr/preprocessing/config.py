@@ -77,14 +77,35 @@ class StellarLineMask(ConfigGroup):
 
     from_spectrum: Literal["master", "template"] = "master"
     """Where the stellar lines are found. ``master``: measured with iSpec on the
-    out-of-transit master spectrum and identified in the iSpec line list, which keeps
-    telluric lines out (only lines of ``stellar_model.line_elements`` deeper than
-    ``stellar_model.line_min_depth``). ``template``: every line of the stellar
-    template deeper than ``depth_below``, with no iSpec needed. It excludes more
-    pixels, including those where stellar and telluric lines blend, so less of the
-    telluric absorption enters the fit. A user-supplied ``stellar_model.template_file``
-    is used as given: an observed spectrum without telluric correction is not
-    suitable, as its telluric lines would be masked as stellar lines."""
+    out-of-transit master spectrum and identified in the iSpec atomic line list (lines
+    of ``stellar_model.line_elements`` deeper than ``stellar_model.line_min_depth``),
+    then checked against the run's telluric model (``blend``). Atomic lines describe
+    FGK stars; the absorption of hot, fast-rotating stars (broad lines) and of M dwarfs
+    (molecular bands) is mostly not found this way, so use ``template`` for them, or
+    ``stellar = "template"``. ``template``: every line of the stellar template deeper
+    than ``depth_below``, with no iSpec needed. It excludes more pixels, including
+    those where stellar and telluric lines blend, so less of the telluric absorption
+    enters the fit. A user-supplied ``stellar_model.template_file`` is used as given:
+    an observed spectrum without telluric correction is not suitable, as its telluric
+    lines would be masked as stellar lines."""
+    blend: Literal["off", "mask", "ratio", "keep"] = "off"
+    """Experimental. ``from_spectrum = "master"``: check the measured lines against the
+    run's telluric model (line transmission at the reference columns, placed on the
+    master by each exposure's RV and airmass). A line whose window has a model telluric
+    depth below ``telluric_depth`` is masked. Otherwise the master is divided by the
+    model: a line whose stellar depth is then below ``stellar_model.line_min_depth`` is
+    taken for a telluric feature and is not masked; the others are blends of a stellar
+    and a telluric line, and ``mask`` masks them, ``keep`` does not, and ``ratio``
+    masks them if the stellar equivalent width in the window is at least
+    ``blend_ratio`` times the telluric one. ``off`` (default): every measured line is
+    masked. In the injection-recovery simulation every checked setting fitted H2O
+    worse than ``off`` (see the user manual, "Lines that blend with telluric lines")."""
+    blend_ratio: float = 0.3
+    """``blend = "ratio"``: stellar / telluric equivalent width in a blend's window
+    above which the blend is masked."""
+    telluric_depth: float = 0.02
+    """Model telluric depth (1 - min T in the window) from which a measured line is
+    checked against the telluric model."""
     depth_below: float = 0.97
     """``from_spectrum = "template"``: template flux below this value marks a stellar
     line."""
@@ -100,6 +121,10 @@ class StellarLineMask(ConfigGroup):
         """``depth_below`` in (0, 1]; non-negative padding and gap."""
         if not 0 < self.depth_below <= 1:
             self.fail("depth_below", f"must be in (0, 1], got {self.depth_below}")
+        if not self.blend_ratio > 0:
+            self.fail("blend_ratio", f"must be > 0, got {self.blend_ratio}")
+        if not 0 < self.telluric_depth < 1:
+            self.fail("telluric_depth", f"must be in (0, 1), got {self.telluric_depth}")
         for name in ("pad_kms", "merge_gap_nm"):
             if getattr(self, name) < 0:
                 self.fail(name, f"must be >= 0, got {getattr(self, name)}")
@@ -255,7 +280,7 @@ class IspecSettings(ConfigGroup):
     """Wavelength step of the synthesis [nm]."""
     resolution: int = 500000
     """Resolving power iSpec gives the raw synthesis; the template is then broadened
-    from it to the instrument resolution (must be higher than that). 0 = none."""
+    from it to the start R of the fit (must be higher than that). 0 = none."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -293,8 +318,9 @@ class StellarModelConfig(ConfigGroup):
 
     backend: Literal["pysme", "ispec"] = "pysme"
     """Synthesis code: PySME (needs the ``stellar_linelist`` setting) or iSpec (needs
-    the ``ispec_dir`` setting). The synthesised template is broadened to the
-    instrument resolution by gtellcorr itself."""
+    the ``ispec_dir`` setting). The synthesised template is broadened by gtellcorr to
+    the start R of the fit: ``lsf.resolution`` if set, else the exposures' header R
+    (e.g. the PEPSI fibre), else the instrument default."""
     template_file: str | None = None
     """A user-supplied template instead of synthesis: two columns ``wave_nm flux``,
     continuum-normalised."""
@@ -308,11 +334,23 @@ class StellarModelConfig(ConfigGroup):
     supported: convert the template first."""
     template_resolution: float | None = None
     """Resolving power of the ``template_file``. ``None``: already at the observed
-    resolution. A value above the exposures' R (header R, e.g. the PEPSI fibre; else the
-    instrument default) broadens the template to it with a Gaussian in velocity space.
-    Exposures with different R cannot share one broadened template."""
+    resolution. A value above the start R of the fit (``lsf.resolution`` if set, else
+    the exposures' header R, e.g. the PEPSI fibre, else the instrument default) broadens
+    the template to it with a Gaussian in velocity space. Without ``lsf.resolution``,
+    exposures with different header R cannot share one broadened template."""
+    fit_shift: bool = False
+    """``stellar = "template"``: fit a velocity of the template beyond its placement RV
+    (``stellar_shift``, one per exposure in a joint fit). It absorbs the template's
+    systematic RV error (tens of m/s between synthetic models; hundreds for an M dwarf
+    without molecular lines in the template). Off by default: in the injection-recovery
+    simulation it left the telluric parameters and the wavelength-solution correction
+    unchanged at R >= 50 000 (their template error is line by line, not a common
+    velocity), and at R = 10 000 or for broad-lined stars it ran to its bounds."""
+    shift_bounds_kms: tuple[float, float] = (-2.0, 2.0)
+    """Bounds of the fitted template velocity [km/s]."""
     line_elements: tuple[str, ...] = ("Fe", "Ca", "Na", "Mg", "Ti", "Cr", "Ni", "Si", "Mn")
-    """Elements whose lines are measured on the master and masked."""
+    """Elements whose lines are measured on the master and masked; empty = every element
+    of the iSpec line list (lines are then selected by depth only)."""
     line_min_depth: float = 0.10
     """Keep only measured lines with central depth >= this."""
     ispec: IspecSettings = field(default_factory=IspecSettings)
@@ -332,6 +370,9 @@ class StellarModelConfig(ConfigGroup):
             )
         if self.template_resolution is not None and not self.template_resolution > 0:
             self.fail("template_resolution", f"must be > 0, got {self.template_resolution}")
+        lo, hi = self.shift_bounds_kms
+        if not lo < 0.0 < hi:
+            self.fail("shift_bounds_kms", f"must satisfy lo < 0 < hi, got {self.shift_bounds_kms}")
         if self.template_file is None:
             for name, default in (
                 ("template_medium", "air"),
@@ -359,17 +400,32 @@ class RVConfig(ConfigGroup):
     orders: tuple[int, ...] | None = None
     """Orders used for the RV; leave out for all orders of the instrument (orders
     whose CCF fails the quality checks are dropped)."""
+    telluric_mask: Literal["model", "bands"] = "model"
+    """Telluric lines kept out of the CCF. ``model``: wherever the run's telluric model
+    (line absorption only, LSF at the exposure's R, every engine molecule at its
+    reference column, scaled to the run's largest airmass) is below
+    ``telluric_threshold``; ``bands``: the ``bands_nm`` of ``telluric_mask_molecules``
+    padded by ``pad_kms`` (weak lines outside the bands stay in, e.g. the O2 gamma
+    band beyond 630 nm, and pull the RV by tens of m/s)."""
+    telluric_threshold: float = 0.99
+    """``model``: transmission below which a pixel is masked."""
+    telluric_pad_kms: float = 2.0
+    """``model``: half-width added to every model window [km/s]."""
     telluric_mask_molecules: tuple[str, ...] = ("h2o", "o2")
-    """Molecules whose ``bands_nm`` are masked in the CCF."""
+    """``bands``: molecules whose ``bands_nm`` are masked in the CCF."""
     mask_activity: bool = True
     """Also mask ``masks.activity_windows_nm``."""
     pad_kms: float = 60.0
-    """Half-width added to every mask window [km/s]."""
+    """Half-width added to the band, activity and user windows [km/s]."""
     ccf_v_lo: float = -60.0
     """Lower end of the CCF velocity grid [km/s]: the absolute topocentric RV, so the
     grid must contain the target's apparent RV."""
     ccf_v_hi: float = 60.0
     """Upper end of the CCF velocity grid [km/s]."""
+    ccf_vsini_pad: float = 2.0
+    """The CCF grid is widened by this many ``vsini`` beyond ``ccf_v_lo`` and
+    ``ccf_v_hi`` when the target's ``vsini_kms`` is known, so a rotationally broadened
+    CCF keeps its wings on the grid (0 = always ``ccf_v_lo``-``ccf_v_hi``)."""
     ccf_dv: float = 1.0
     """Step of the CCF velocity grid [km/s]."""
     plot_ccf: bool = False
@@ -389,8 +445,14 @@ class RVConfig(ConfigGroup):
                 self.fail("telluric_mask_molecules", f"unknown molecule {molecule!r}")
         if self.pad_kms < 0:
             self.fail("pad_kms", f"must be >= 0, got {self.pad_kms}")
+        if not 0.0 < self.telluric_threshold <= 1.0:
+            self.fail("telluric_threshold", f"must be in (0, 1], got {self.telluric_threshold}")
+        if self.telluric_pad_kms < 0:
+            self.fail("telluric_pad_kms", f"must be >= 0, got {self.telluric_pad_kms}")
         if not self.ccf_v_lo < self.ccf_v_hi:
             self.fail("ccf_v_lo", "must be smaller than ccf_v_hi")
+        if self.ccf_vsini_pad < 0:
+            self.fail("ccf_vsini_pad", f"must be >= 0, got {self.ccf_vsini_pad}")
         if self.ccf_dv <= 0:
             self.fail("ccf_dv", f"must be > 0, got {self.ccf_dv}")
         if self.ccf_plot_max_orders is not None and self.ccf_plot_max_orders < 1:

@@ -11,7 +11,8 @@ convolution, interpolation to the data grid, then the continuum is projected out
 on the telluric transmission only: the model is ``C * M * (K_R conv T)``, not
 ``K_R conv (M * T)`` (the stellar template keeps its preprocessing resolution). A
 fitted wavelength-solution correction (:mod:`gtellcorr.fitting.wave_shift`) moves only
-``K_R conv T`` before it is interpolated to the data grid.
+``K_R conv T`` before it is interpolated to the data grid; a fitted template velocity
+(:mod:`gtellcorr.fitting.stellar_shift`) moves only ``M``.
 """
 
 from __future__ import annotations
@@ -28,8 +29,9 @@ from gtellcorr.fitting.blocks import ModelState, ParameterBlock, default_blocks
 from gtellcorr.fitting.continuum import fit_continuum
 from gtellcorr.fitting.fit_spec import FitSpec
 from gtellcorr.fitting.lsf_grid import apply_lsf_fixed_grid
+from gtellcorr.fitting.stellar_shift import stellar_on_data
 from gtellcorr.fitting.wave_shift import shifted_grid
-from gtellcorr.telluric.order_cache import OrderCache, transmittance
+from gtellcorr.telluric.order_cache import OrderCache, continuum_transmittance, transmittance
 
 __all__ = [
     "JointLayout",
@@ -217,6 +219,23 @@ class OrderEvaluation:
     """Projected continuum ``C``."""
     residual: Array
     """``(flux - C * model) * sqrt(weight)``, zero on excluded pixels."""
+    broadband_on_data: Array | None = None
+    """Transmission of the LBLRTM continua alone on the data grid (part of
+    ``telluric_on_data``); ``None`` when the cache holds no continua."""
+
+
+def lines_only(evaluated: OrderEvaluation, continuum: Any) -> tuple[Array, Array]:
+    """The stored transmission and continuum of an evaluation: the LBLRTM continua
+    (broadband extinction) moved from ``T`` into ``C``, so ``T`` holds the line
+    absorption and ``C * T`` is unchanged. Without continua both are returned as
+    they are."""
+    telluric = np.asarray(evaluated.telluric_on_data, float)
+    continuum = np.asarray(continuum, float)
+    broadband = evaluated.broadband_on_data
+    if broadband is None:
+        return telluric, continuum
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return telluric / broadband, continuum * broadband
 
 
 def inverse_variance(err: Any) -> Array:
@@ -246,7 +265,7 @@ def evaluate_order(
     y = np.asarray(spectrum.flux, float)
     weight = np.asarray(weight, float)
     keep = np.asarray(keep_mask, bool)
-    stellar = None if stellar_model is None else np.asarray(stellar_model, float)
+    stellar = stellar_on_data(stellar_model, state.stellar_shift)
 
     shape = state.lsf_shape if state.lsf_shape is not None else 2.0
     wl, trans = transmittance(cache, dict(state.scales))
@@ -276,11 +295,16 @@ def evaluate_order(
     sqrt_w = np.sqrt(np.clip(weight, 0.0, None))
     residual = (y - continuum * model) * sqrt_w
     residual = np.where(keep & np.isfinite(residual), residual, 0.0)
+    broadband = continuum_transmittance(cache, dict(state.scales))
+    broadband_on_data = (
+        None if broadband is None else np.asarray(np.interp(at, wl, broadband), float)
+    )
     return OrderEvaluation(
         telluric_on_data=on_data,
         multiplicative_model=model,
         continuum=continuum,
         residual=residual,
+        broadband_on_data=broadband_on_data,
     )
 
 

@@ -1,14 +1,23 @@
-"""Exposure-level result FITS (schema ``S2DIMGV2``).
+"""Exposure-level result FITS (schema ``S2DIMGV3``).
 
 One file per exposure holds:
 
 * image HDUs ``WAVE_FIT``, ``WAVE_INPUT``, ``FLUX_OBS``, ``ERR``, ``TELL_MODEL``,
-  ``FLUX_CORRECTED``, ``ERR_CORRECTED``, ``CONTINUUM``, ``STELLAR_MODEL`` (float64,
-  NaN-padded) and ``EXCLUSION`` (uint8, 1 = excluded, padding excluded), one row per
-  order;
+  ``FLUX_CORRECTED``, ``ERR_CORRECTED``, ``CONTINUUM``, ``STELLAR_MODEL`` (float64)
+  and ``EXCLUSION`` (uint8), one row per order. Pixel ``i`` of a row is pixel ``i`` of
+  the delivered order (``ORDER_SUMMARY.n_input`` pixels; NaN beyond them). The
+  wavelengths, ``FLUX_OBS`` and ``ERR`` hold every delivered pixel; the fitted
+  products are NaN where the reader left the pixel out (no usable flux, error or
+  wavelength). ``EXCLUSION``: 0 = used (in the fit of the molecular columns in the
+  fit orders, ``ORDER_SUMMARY.used_in_fit``; in the other orders in the fit of that
+  order's continuum only), 1 = masked (strong telluric cores, activity lines, user
+  bad regions, and stellar lines with ``stellar = "mask"``; corrected, strong cores
+  unreliable), 2 = no usable data in the input or beyond the order (not corrected).
+  Pixels with 0 or 1 are corrected. The image header repeats this in COMMENT cards;
 * only when a wavelength-solution correction was fitted: ``WAVE_FIT_CORR``
   and ``WAVE_INPUT_CORR``, the same pixels' wavelengths anchored on the telluric lines
-  (``wave / (1 + v / c)``), the uncorrected grid for orders without a correction;
+  (``wave / (1 + v / c)``), the uncorrected grid for orders without a correction,
+  NaN where ``EXCLUSION`` is 2;
 * ``ORDER_SUMMARY`` (per-order parameters; ``row_index`` maps rows to orders),
   ``FIT_SUMMARY`` (exposure-level fit) and ``RUN_METADATA`` key/value tables;
 * optional cumulative PCA models ``tell_principal_model_###`` (``TPCA_N``, ``TPCA_MODE``).
@@ -17,6 +26,10 @@ Primary-header cards record what a product was made from, which decides whether 
 can be reused: ``GTC_VERS`` (package version), ``CFG_HASH`` (fit configuration),
 ``RES_FP`` (checksum of the LBLRTM bundle manifest) and ``IN_HASH`` (input spectrum
 file).
+
+Files of the earlier schema ``S2DIMGV2`` are read as before: each row holds the
+order's usable pixels from its start, NaN-padded, and ``EXCLUSION`` is 1 on the
+padding.
 """
 
 from __future__ import annotations
@@ -36,7 +49,9 @@ from gtellcorr.errors import DataError
 
 __all__ = [
     "CORRECTED_WAVE_HDU_NAMES",
+    "EXCLUDED",
     "EXPOSURE_FITS_PATTERNS",
+    "NO_DATA",
     "PROVENANCE_CARDS",
     "S2D_IMAGE_HDU_NAMES",
     "S2D_SCHEMA_NAME",
@@ -53,7 +68,9 @@ FITS_PCA_N_KEY = "TPCA_N"
 FITS_PCA_MODE_KEY = "TPCA_MODE"
 FITS_PCA_MODE_VALUE = "cumulative_model"
 
-S2D_SCHEMA_NAME = "S2DIMGV2"
+S2D_SCHEMA_NAME = "S2DIMGV3"
+#: ``EXCLUSION`` values.
+EXCLUDED, NO_DATA = 1, 2
 S2D_IMAGE_HDU_NAMES = (
     "WAVE_FIT", "WAVE_INPUT", "FLUX_OBS", "ERR", "TELL_MODEL", "FLUX_CORRECTED",
     "ERR_CORRECTED", "CONTINUUM", "STELLAR_MODEL", "EXCLUSION",
@@ -145,7 +162,9 @@ def _metadata_hdu(name: str, metadata: Mapping[str, Any] | None) -> fits.BinTabl
 
 
 def _summary_rows(
-    results: Sequence[Any], metadata: Mapping[int, Mapping[str, Any]]
+    results: Sequence[Any],
+    metadata: Mapping[int, Mapping[str, Any]],
+    grids: Mapping[int, Any],
 ) -> list[dict[str, Any]]:
     """``ORDER_SUMMARY`` rows, one per order result (missing values as NaN / -1)."""
     rows = []
@@ -153,6 +172,7 @@ def _summary_rows(
         meta = metadata.get(int(r.order), {})
         x = np.asarray(r.wave_fit, float)
         finite = np.isfinite(x)
+        grid = grids.get(int(r.order))
         relcol = getattr(r, "relcol", {}) or {}
         relcol_err = getattr(r, "relcol_err", {}) or {}
         rows.append(
@@ -193,6 +213,9 @@ def _summary_rows(
                 "wavesol_source": str(meta.get("wavesol_source", "not_fitted")),
                 "converged": _flag(getattr(r, "converged", None)),
                 "n_eval": _int(getattr(r, "n_eval", None)),
+                "stellar_shift": _float(getattr(r, "stellar_shift", None)),
+                "stellar_shift_err": _float(getattr(r, "stellar_shift_err", None)),
+                "n_input": int(x.size if grid is None else grid.kept.size),
             }
         )
     return rows
@@ -212,6 +235,12 @@ _TABLE_COLUMNS: tuple[tuple[str, str | None], ...] = (
     # optimiser outcome: "true" / "false" / "" and evaluations, -1 if not fitted
     # (absent from older result files)
     ("converged", None), ("n_eval", "J"),
+    # template velocity beyond the placement RV [km/s], NaN when not moved
+    # (absent from older result files)
+    ("stellar_shift", "D"), ("stellar_shift_err", "D"),
+    # pixels of the delivered order, the image row length of the order (n_pixels of
+    # them are usable); absent from S2DIMGV2 files
+    ("n_input", "J"),
 )  # fmt: skip
 
 
@@ -250,38 +279,63 @@ _ATTRIBUTES = {
     "ERR_CORRECTED": "err_corrected", "CONTINUUM": "continuum", "STELLAR_MODEL": "stellar_model",
 }  # fmt: skip
 _OPTIONAL = {"ERR_CORRECTED", "CONTINUUM", "STELLAR_MODEL"}
+#: Images holding every delivered pixel: the grid's values where the reader left a pixel out.
+_GRID_VALUES = {"WAVE_FIT": "wave_fit", "WAVE_INPUT": "wave_input", "FLUX_OBS": "flux",
+                "ERR": "err"}  # fmt: skip
+
+
+def _positions(result: Any, grid: Any, n_pixels: int) -> NDArray[np.intp]:
+    """Image columns of a result's pixels: the grid's kept pixels, else the first
+    *n_pixels* (a result without a grid covers its whole order)."""
+    if grid is None:
+        return np.arange(int(n_pixels))
+    positions = np.flatnonzero(np.asarray(grid.kept, bool))
+    if positions.size != int(n_pixels):
+        raise ValueError(
+            f"order {int(result.order)}: the input grid keeps {positions.size} pixels, "
+            f"the result has {int(n_pixels)}"
+        )
+    return positions
 
 
 def _stack_images(
-    results: Sequence[Any], rows: Sequence[Mapping[str, Any]]
+    results: Sequence[Any], rows: Sequence[Mapping[str, Any]], grids: Mapping[int, Any]
 ) -> tuple[dict[str, NDArray[Any]], int]:
-    """The image HDUs as ``(n_order, n_pixel_max)`` arrays, and ``n_pixel_max``."""
-    n_pix = max(int(row["n_pixels"]) for row in rows)
+    """The image HDUs as ``(n_order, n_pixel_max)`` arrays on the delivered pixel grids,
+    and ``n_pixel_max``."""
+    n_pix = max(int(row["n_input"]) for row in rows)
     images = {n: np.full((len(results), n_pix), np.nan, dtype=np.float64) for n in _FLOAT_HDUS}
-    images["EXCLUSION"] = np.ones((len(results), n_pix), dtype=np.uint8)
+    images["EXCLUSION"] = np.full((len(results), n_pix), NO_DATA, dtype=np.uint8)
     for i, result in enumerate(results):
         n = int(rows[i]["n_pixels"])
+        grid = grids.get(int(result.order))
+        columns = _positions(result, grid, n)
         for hdu, attribute in _ATTRIBUTES.items():
-            images[hdu][i, :n] = _row_array(
-                result, attribute, n_pixels=n, optional=hdu in _OPTIONAL
-            )
+            values = _row_array(result, attribute, n_pixels=n, optional=hdu in _OPTIONAL)
+            if grid is not None and hdu in _GRID_VALUES:
+                images[hdu][i, : grid.kept.size] = getattr(grid, _GRID_VALUES[hdu])
+            images[hdu][i, columns] = values
         exclusion = getattr(result, "exclusion", None)
         exclusion = np.zeros(n, dtype=bool) if exclusion is None else np.asarray(exclusion, bool)
         if exclusion.ndim != 1 or exclusion.size != n:
             raise ValueError(
                 f"order {int(result.order)} exclusion: expected length {n}, got {exclusion.shape}"
             )
-        images["EXCLUSION"][i, :n] = exclusion.astype(np.uint8)
+        images["EXCLUSION"][i, columns] = np.where(exclusion, EXCLUDED, 0).astype(np.uint8)
     return images, n_pix
 
 
 def _corrected_wave_images(
-    results: Sequence[Any], rows: Sequence[Mapping[str, Any]], n_pix: int
+    results: Sequence[Any],
+    rows: Sequence[Mapping[str, Any]],
+    n_pix: int,
+    grids: Mapping[int, Any],
 ) -> dict[str, NDArray[Any]]:
     """``WAVE_FIT_CORR`` / ``WAVE_INPUT_CORR``, or nothing when no order has a correction.
 
     The result's ``wave_fit_corr`` / ``wave_input_corr`` are used where present; an
-    order without a correction keeps its uncorrected grid.
+    order without a correction keeps its uncorrected grid. Pixels the reader left out
+    are NaN.
     """
     if all(getattr(r, "wave_fit_corr", None) is None for r in results):
         return {}
@@ -291,12 +345,13 @@ def _corrected_wave_images(
     }
     for i, result in enumerate(results):
         n = int(rows[i]["n_pixels"])
+        columns = _positions(result, grids.get(int(result.order)), n)
         for hdu, corrected, original in (
             ("WAVE_FIT_CORR", "wave_fit_corr", "wave_fit"),
             ("WAVE_INPUT_CORR", "wave_input_corr", "wave_input"),
         ):
             attribute = original if getattr(result, corrected, None) is None else corrected
-            images[hdu][i, :n] = _row_array(result, attribute, n_pixels=n, optional=False)
+            images[hdu][i, columns] = _row_array(result, attribute, n_pixels=n, optional=False)
     return images
 
 
@@ -354,10 +409,30 @@ _IMAGE_CARDS: dict[str, dict[str, tuple[str, str]]] = {
         "GTWAVE": ("WAVE_FIT", "wavelength grid for this product"),
     },
     "EXCLUSION": {
-        "BUNIT": ("bool_uint8", "1=excluded from fit, 0=available"),
-        "GTDESC": ("union fit-exclusion mask", "HDU meaning"),
+        "BUNIT": ("flag_uint8", "0=used, 1=masked, 2=no usable data (COMMENT)"),
+        "GTDESC": ("pixel use in the fit and correction", "HDU meaning"),
         "GTWAVE": ("WAVE_FIT", "wavelength grid for this mask"),
     },
+}
+#: COMMENT cards of an image HDU (at most 72 characters each).
+_IMAGE_COMMENTS: dict[str, tuple[str, ...]] = {
+    "EXCLUSION": (
+        "EXCLUSION, per pixel:",
+        "0 = used. In a fit order (ORDER_SUMMARY.used_in_fit = T) the pixel",
+        "    entered the fit of the molecular columns; in the other orders",
+        "    it entered only the fit of that order's own continuum (their",
+        "    telluric model uses the columns fitted in the fit orders).",
+        "1 = masked: left out of the fit. Strong telluric line cores (the",
+        "    strong-telluric mask, default T < 0.05), stellar activity",
+        "    lines, user bad regions, and with stellar = 'mask' the stellar",
+        "    lines. The pixel is corrected (FLUX_CORRECTED); strong telluric",
+        "    cores divide the flux by a very small T and are not reliable.",
+        "2 = no usable data in the input: flux, error or wavelength not",
+        "    finite, error <= 0, or flagged by the reduction (for ESPRESSO",
+        "    QUALDATA); also beyond the order. Not corrected: the telluric",
+        "    model, FLUX_CORRECTED, CONTINUUM and STELLAR_MODEL are NaN.",
+        "Every pixel with EXCLUSION 0 or 1 is corrected.",
+    ),
 }
 
 
@@ -368,7 +443,16 @@ def _image_hdu(name: str, image: NDArray[Any]) -> fits.ImageHDU:
     hdu.header["ROWMAP"] = _ROWMAP
     for key, (value, comment) in _IMAGE_CARDS.get(name, {}).items():
         hdu.header[key] = (value, comment)
+    for line in _IMAGE_COMMENTS.get(name, ()):
+        hdu.header.add_comment(line)
     return hdu
+
+
+def _with_comment(key: str, value: str, comment: str) -> tuple[str, str] | str:
+    """``(value, comment)`` for a header card, or the value alone when the comment would not
+    fit in the 80-character card (astropy would truncate it with a warning)."""
+    card = fits.Card(key, value).image.rstrip()
+    return (value, comment) if len(card) + len(" / ") + len(comment) <= 80 else value
 
 
 def write_exposure_fits(
@@ -382,11 +466,15 @@ def write_exposure_fits(
     order_metadata: Mapping[int, Mapping[str, Any]] | None = None,
     run_metadata: Mapping[str, Any] | None = None,
     provenance: Mapping[str, str] | None = None,
+    grids: Mapping[int, Any] | None = None,
 ) -> Path:
     """Write one exposure's results.
 
     ``correction_mode`` is ``single_order`` or ``joint_orders``; ``provenance`` fills
-    the :data:`PROVENANCE_CARDS` (what the result was made from).
+    the :data:`PROVENANCE_CARDS` (what the result was made from). ``grids`` maps an
+    order to the :class:`~gtellcorr.data.observation.InputGrid` its result's pixels
+    came from, so the order is written on the delivered pixel grid; an order without
+    a grid is written from the start of its row.
     """
     if correction_mode not in ("single_order", "joint_orders"):
         raise ValueError(f"unsupported correction_mode: {correction_mode!r}")
@@ -395,17 +483,19 @@ def write_exposure_fits(
     results = sorted(order_results, key=lambda r: int(r.order))
     if not results:
         raise ValueError("write_exposure_fits requires at least one order result")
-    rows = _summary_rows(results, order_metadata or {})
-    images, n_pix = _stack_images(results, rows)
+    grids = {int(k): v for k, v in (grids or {}).items() if v is not None}
+    rows = _summary_rows(results, order_metadata or {}, grids)
+    images, n_pix = _stack_images(results, rows, grids)
     primary = fits.PrimaryHDU()
     hdr = primary.header
     hdr["GTSCHEMA"] = (S2D_SCHEMA_NAME, "gtellcorr result file format")
     hdr["CORRMODE"] = (correction_mode, "telluric correction mode")
-    hdr["INSTRUME"] = (str(instrument), "instrument")
-    hdr["EXPOSURE"] = (str(exposure)[:68], "input spectrum file")
+    hdr["INSTRUME"] = _with_comment("INSTRUME", str(instrument), "instrument")
+    # at most 68 characters, the most one card holds; the full name is in RUN_METADATA
+    hdr["EXPOSURE"] = _with_comment("EXPOSURE", str(exposure)[:68], "input spectrum file")
     hdr["NORDER"] = (len(results), "orders in this file (image rows)")
     hdr["NFITORD"] = (sum(bool(row["used_in_fit"]) for row in rows), "orders used in the fit")
-    hdr["NPIXMAX"] = (int(n_pix), "pixels per image row (longest order)")
+    hdr["NPIXMAX"] = (int(n_pix), "pixels per image row (longest delivered order)")
     summary = fit_summary or {}
     if summary.get("chi2") is not None:
         hdr["CHI2"] = (float(summary["chi2"]), "chi-square of the fit")
@@ -421,7 +511,8 @@ def write_exposure_fits(
     hdus: list[Any] = [primary]
     hdus.extend(_image_hdu(n, images[n]) for n in S2D_IMAGE_HDU_NAMES)
     hdus.extend(
-        _image_hdu(n, image) for n, image in _corrected_wave_images(results, rows, n_pix).items()
+        _image_hdu(n, image)
+        for n, image in _corrected_wave_images(results, rows, n_pix, grids).items()
     )
     hdus.extend(
         [
@@ -493,7 +584,10 @@ def _row_index(row: Any) -> int:
 
 
 def _row_pixels(row: Any, wave_row: NDArray[Any]) -> int:
-    """Number of real (unpadded) pixels of an order."""
+    """Pixels of an order's image row: the delivered order (``n_input``), or in
+    ``S2DIMGV2`` files the usable pixels at the start of the row."""
+    if "n_input" in (row.array.names or []):
+        return min(int(row["n_input"]), len(wave_row))
     if "n_pixels" in (row.array.names or []):
         n = int(row["n_pixels"])
         if n > 0:
@@ -564,6 +658,7 @@ def _summary_fields(row: Any) -> dict[str, Any]:
         "masked_frac": float(row["masked_frac"]),
         **_shift_fields(row),
         **_convergence_fields(row),
+        **_stellar_shift_fields(row),
     }
 
 
@@ -591,6 +686,19 @@ def _shift_fields(row: Any) -> dict[str, Any]:
     }
 
 
+def _stellar_shift_fields(row: Any) -> dict[str, Any]:
+    """Template velocity and its error [km/s] (``None`` when not moved and in older
+    result files)."""
+
+    def value(name: str) -> float | None:
+        if name not in (row.array.names or []):
+            return None
+        v = float(row[name])
+        return v if np.isfinite(v) else None
+
+    return {name: value(name) for name in ("stellar_shift", "stellar_shift_err")}
+
+
 def _convergence_fields(row: Any) -> dict[str, Any]:
     """Optimiser outcome (``None`` when not fitted and in older result files)."""
     if "converged" not in (row.array.names or []):
@@ -606,6 +714,10 @@ def _convergence_fields(row: Any) -> dict[str, Any]:
 def load_exposure_order(path: str | os.PathLike[str], order: int | None = None) -> dict[str, Any]:
     """One order of a result FITS as a dict: arrays, ``ORDER_SUMMARY`` fields and metadata.
 
+    The arrays cover the delivered order pixel by pixel; ``kept`` marks the pixels
+    with usable data (the fitted products are NaN elsewhere), ``exclusion`` the
+    pixels left out of the fit, including those without data. For ``S2DIMGV2`` files
+    the arrays hold the usable pixels only and ``kept`` is all true.
     ``order=None`` is allowed for a file holding a single order.
     """
     with fits.open(path) as hdul:
@@ -636,6 +748,8 @@ def load_exposure_order(path: str | os.PathLike[str], order: int | None = None) 
             got = _row_values(hdul, name, index, n, optional=True)
             return None if got is None else _nan_to_none(got)
 
+        flags = np.asarray(hdul["EXCLUSION"].data[index, :n])
+        aligned = "n_input" in (row.array.names or [])
         out: dict[str, Any] = {
             "wave_fit": values("WAVE_FIT"),
             "wave_input": values("WAVE_INPUT"),
@@ -646,7 +760,8 @@ def load_exposure_order(path: str | os.PathLike[str], order: int | None = None) 
             "err_corrected": optional("ERR_CORRECTED"),
             "continuum": optional("CONTINUUM"),
             "stellar_model": optional("STELLAR_MODEL"),
-            "exclusion": np.asarray(values("EXCLUSION"), bool),
+            "exclusion": flags != 0,
+            "kept": flags != NO_DATA if aligned else np.ones(n, dtype=bool),
             "order": int(order),
             "row_index": index,
             "instrument": str(hdr.get("INSTRUME", "")),
@@ -734,6 +849,7 @@ def read_order_timeseries(
             "order": int(order),
             "wave": np.asarray(data["wave_fit"], float),
             "tell_model": np.asarray(data["tell_model"], float),
+            "kept": np.asarray(data["kept"], bool),
             "correction_mode": str(data.get("correction_mode", "")),
             "instrument": str(data.get("instrument", "")),
             "used_in_fit": data.get("used_in_fit"),

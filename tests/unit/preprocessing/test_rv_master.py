@@ -55,6 +55,33 @@ def test_ccf_and_rv_recovery() -> None:
     assert rv.gaussian_fit_ccf(np.arange(5.0), -np.ones(5)) is None
 
 
+def test_ccf_grid_widened_by_vsini() -> None:
+    config = RVConfig()
+    assert rv.ccf_grid_limits(config) == (-60.0, 60.0)
+    assert rv.ccf_grid_limits(config, None) == (-60.0, 60.0)
+    assert rv.ccf_grid_limits(config, 0.0) == (-60.0, 60.0)
+    assert rv.ccf_grid_limits(config, 100.0) == (-260.0, 260.0)
+    fixed = dataclasses.replace(config, ccf_vsini_pad=0.0)
+    assert rv.ccf_grid_limits(fixed, 100.0) == (-60.0, 60.0)
+    # broad lines (sigma 0.1 nm ~ 50 km/s): the CCF is wider than the default grid
+    w = np.linspace(590.0, 630.0, 40000)
+    centres = np.linspace(592.0, 628.0, 12)
+    broad = 1.0 - sum(
+        0.3 * np.exp(-0.5 * ((w / (1 + 5.0 / C_KMS) - c) / 0.1) ** 2) for c in centres
+    )
+    tf = 1.0 - sum(0.3 * np.exp(-0.5 * ((w - c) / 0.1) ** 2) for c in centres)
+    orders = [(0, w, broad, np.full_like(w, 1e-3))]
+    lo, hi = rv.ccf_grid_limits(config, 100.0)
+    wide = rv.measure_rv_exposure(
+        orders, w, tf, mask_windows=[], v_lo=lo, v_hi=hi, dv=1.0, mcmc=False
+    )
+    assert wide.rv_kms == pytest.approx(5.0, abs=0.05)
+    with pytest.raises(DataError, match="no order produced"):
+        rv.measure_rv_exposure(
+            orders, w, tf, mask_windows=[], v_lo=-60, v_hi=60, dv=1.0, mcmc=False
+        )
+
+
 def test_ccf_product_and_tables(tmp_path: Path) -> None:
     orders = [(o, *_order(3.0, o)) for o in range(2)]
     result = rv.measure_rv_exposure(

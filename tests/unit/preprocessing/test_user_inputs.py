@@ -209,6 +209,12 @@ def test_template_resolution(tmp_path: Path) -> None:
     mixed = _obs(tmp_path, [SimpleNamespace(resolution=r) for r in (50_000.0, 130_000.0)])
     with pytest.raises(ConfigError, match="different resolving powers"):
         prepare.load_stellar_template(path, mixed, cfg)
+    # lsf.resolution, the start (or fixed) R of the fit, wins over the header R
+    pinned = cfg.replace(lsf=cfg.lsf.replace(resolution=80_000.0))
+    for observation in (obs_50k, mixed):
+        assert _fwhm_kms(
+            *prepare.load_stellar_template(path, observation, pinned)
+        ) == pytest.approx(C_KMS / 80_000.0, rel=5e-3)
     low = cfg.replace(
         stellar_model=StellarModelConfig(template_file=str(path), template_resolution=50_000.0)
     )
@@ -267,7 +273,10 @@ def test_user_line_windows_masks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         np.testing.assert_allclose(np.loadtxt(mask), shift_windows(rest, rv), atol=1e-5)
         assert "rest-window source: user_file:windows.txt" in mask.read_text()
     # back to the measured windows: masks built from user windows are not reused
-    measured = cfg.replace(masks=FitMasks(), on_missing_stellar_data="generate")
+    measured = cfg.replace(
+        masks=FitMasks(stellar_linemask=StellarLineMask(blend="off")),
+        on_missing_stellar_data="generate",
+    )
     products.status["rv"] = "reused"
     with pytest.raises(AssertionError, match="must not run"):
         prepare.ensure_linemasks(obs, measured, settings, layout, products)
@@ -294,6 +303,7 @@ def test_stale_mask_messages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         stellar="mask",
         on_missing_stellar_data="error",
         rv=RVConfig(source="user_file", user_rv_file=str(rv_path)),
+        masks=FitMasks(stellar_linemask=StellarLineMask(blend="off")),
     )
     settings = Settings(resource_root=tmp_path, cache_dir=tmp_path)
 
@@ -400,7 +410,11 @@ def test_linemask_from_master_reuses_matching_measurement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     layout, obs, rv_path, template, calls, settings = _mask_setup(tmp_path, monkeypatch)
-    cfg = FitConfig(stellar="mask", rv=RVConfig(source="user_file", user_rv_file=str(rv_path)))
+    cfg = FitConfig(
+        stellar="mask",
+        rv=RVConfig(source="user_file", user_rv_file=str(rv_path)),
+        masks=FitMasks(stellar_linemask=StellarLineMask(blend="off")),
+    )
     products = _products(layout, obs, cfg, template)
     np.savetxt(layout.linemask_rest, [[600.4, 600.41]])  # as the measurement writes it
     # no record yet: the lines are measured again

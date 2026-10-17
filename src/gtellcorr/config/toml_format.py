@@ -22,7 +22,7 @@ from gtellcorr.errors import ConfigError
 
 __all__ = ["CURRENT_SCHEMA_VERSION", "MIGRATIONS", "dumps", "dumps_group", "loads", "migrate"]
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 log = logging.getLogger(__name__)
 
@@ -114,11 +114,26 @@ def _v3_to_v4(doc: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
+def _v4_to_v5(doc: dict[str, Any]) -> dict[str, Any]:
+    """Schema 4 -> 5: ``spectral.airmass_card`` of instrument files is removed.
+
+    The airmass of an exposure is read with ``header.airmass``, which tries several
+    cards (e.g. one per ESPRESSO unit telescope); the reader's single card was not
+    used, and named the wrong telescope for three of the four VLT units.
+    """
+    spectral = doc.get("instrument", {}).get("spectral")
+    if isinstance(spectral, dict) and "airmass_card" in spectral:
+        del spectral["airmass_card"]
+        log.info("schema 4 -> 5: dropped instrument.spectral.airmass_card (header.airmass is used)")
+    return doc
+
+
 #: ``MIGRATIONS[n]`` upgrades a raw document from schema version ``n`` to ``n + 1``.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _v1_to_v2,
     2: _v2_to_v3,
     3: _v3_to_v4,
+    4: _v4_to_v5,
 }
 
 

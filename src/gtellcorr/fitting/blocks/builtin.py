@@ -143,6 +143,35 @@ class WaveShiftBlock:
         return dataclasses.replace(state, wave_shift=tuple(float(v) for v in values))
 
 
+class StellarShiftBlock:
+    """Velocity [km/s] of the stellar template beyond its placement RV, one per
+    exposure (:mod:`gtellcorr.fitting.stellar_shift`)."""
+
+    name: ClassVar[str] = "stellar_shift"
+    scope: ClassVar[Scope] = "exposure"
+
+    def active(self, spec: FitSpec) -> bool:
+        """When ``fit_stellar_shift``."""
+        return bool(spec.fit_stellar_shift)
+
+    def names(self, spec: FitSpec) -> tuple[str, ...]:
+        """``stellar_shift``."""
+        return ("stellar_shift",)
+
+    def initial(self, spec: FitSpec) -> Array:
+        """The template as placed by the measured RV."""
+        return np.zeros(1, float)
+
+    def bounds(self, spec: FitSpec) -> tuple[Array, Array]:
+        """``stellar_model.shift_bounds_kms``."""
+        lo, hi = spec.stellar_shift_bounds
+        return np.array([float(lo)]), np.array([float(hi)])
+
+    def apply(self, values: Array, spec: FitSpec, state: ModelState) -> ModelState:
+        """Set the template velocity."""
+        return dataclasses.replace(state, stellar_shift=float(values[0]))
+
+
 class SharedWaveShiftBlock(WaveShiftBlock):
     """One constant velocity correction shared by all orders of a joint fit
     (``wavelength.scope = "exposure"``, degree 0)."""

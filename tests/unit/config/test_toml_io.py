@@ -65,6 +65,17 @@ def test_fit_config_file_carries_comments() -> None:
     assert "# How stellar lines are handled" in text
 
 
+@pytest.mark.parametrize("config", [FitConfig(), _run()], ids=["fit", "run"])
+def test_header_says_whether_parameters_are_documented(config: Any) -> None:
+    commented = dumps_config(config)
+    plain = dumps_config(config, comments=False)
+    assert "Each parameter is documented above its line" in commented
+    assert "documented" not in plain
+    for text in (commented, plain):
+        assert text.startswith("# gtellcorr configuration.")
+        assert "parameters left out keep their default values" in text.lower()
+
+
 def test_long_scalar_arrays_are_packed() -> None:
     text = dumps({"t": {"orders": list(range(122))}})
     body = text.split("orders = [")[1].split("]")[0]
@@ -230,3 +241,25 @@ def test_schema_3_to_4_drops_the_strong_mask_sampling(caplog: pytest.LogCaptureF
     v4 = v3.replace("schema_version = 3", "schema_version = 4")
     with pytest.raises(ConfigError, match="n_grid_per_nm: unknown parameter"):
         RunConfig.from_dict(loads(v4))
+
+
+def test_schema_4_to_5_drops_the_reader_airmass_card(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from gtellcorr.data.observation.instrument import load_instrument_file
+
+    builtin = Path(__file__).parents[3] / "src/gtellcorr/data/observation/instruments"
+    current = (builtin / "vlt_espresso.toml").read_text(encoding="utf-8")
+    old = current.replace("schema_version = 5", "schema_version = 4").replace(
+        'wave_unit = "A"\n', 'wave_unit = "A"\nairmass_card = "ESO TEL1 AIRM START"\n'
+    )
+    assert old.count("airmass_card") == 1
+    path = tmp_path / "espresso_v4.toml"
+    path.write_text(old, encoding="utf-8")
+    with caplog.at_level("INFO", logger="gtellcorr.config.toml_format"):
+        spec = load_instrument_file(path)
+    assert spec == load_instrument_file(builtin / "vlt_espresso.toml")
+    assert "dropped instrument.spectral.airmass_card" in caplog.text
+    path.write_text(old.replace("schema_version = 4", "schema_version = 5"), encoding="utf-8")
+    with pytest.raises(ConfigError, match="airmass_card"):
+        load_instrument_file(path)

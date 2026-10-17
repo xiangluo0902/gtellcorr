@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import numpy as np
+
+from gtellcorr.fitting.stellar_shift import ShiftableStellarModel
 from gtellcorr.preprocessing.prepare import StellarProducts, prepare_stellar
 from gtellcorr.preprocessing.stellar_mask import fit_exclusion
 from gtellcorr.preprocessing.synthesis import stellar_model_for_order
@@ -42,12 +45,19 @@ class TemplateTreatment:
     def order_model(
         self, products: StellarProducts, exposure: str, wave_nm: Any
     ) -> OrderStellarModel:
-        """The template placed on *wave_nm* (1 outside it) and the exclusions."""
+        """The template placed on *wave_nm* (1 outside it) by the exposure's RV, as a
+        :class:`~gtellcorr.fitting.stellar_shift.ShiftableStellarModel` the fit can move
+        by a further velocity, and the exclusions."""
         rv = products.placement_rv(exposure)
+        wave = np.asarray(wave_nm, float)
+        template = products.template
         excl = fit_exclusion(
             wave_nm,
             activity_windows=products.activity_windows,
             bad_regions=products.bad_regions,
             strong_windows=products.strong_windows,
         )
-        return stellar_model_for_order(wave_nm, rv, products.template), excl
+        model = ShiftableStellarModel(
+            lambda shift: stellar_model_for_order(wave, rv + shift, template)
+        )
+        return model, excl

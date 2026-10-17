@@ -160,6 +160,8 @@ def _write_models(
             ok = np.isfinite(grid) & np.isfinite(model)
             if np.count_nonzero(ok) >= 2:
                 models[c] = np.interp(wave, grid[ok], model[ok], left=np.nan, right=np.nan)
+        if "kept" in row:
+            models[:, ~np.asarray(row["kept"], bool)] = np.nan
         update_order_columns(
             row["path"],
             int(row["order"]),

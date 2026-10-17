@@ -68,7 +68,7 @@ def _data(noise: float, seed: int = 1, r: float = 1.08e5) -> OrderSpectrum:
     x = np.linspace(690.0, 696.0, 4000)
     flat = OrderSpectrum(
         wave_fit=x, wave_input=x, flux=np.ones_like(x), cont=np.ones_like(x),
-        err=np.full_like(x, noise), airmass=1.2,
+        err=np.full_like(x, noise),
     )  # fmt: skip
     model = evaluate_order(
         flat, cache(), spec_for(), ModelState(scales=TRUTH, resolution=r, lsf_shape=None),

@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 __all__ = [
     "RV_TABLE_COLUMNS",
     "ExposureRVResult",
+    "ccf_grid_limits",
     "coadd_ccfs",
     "cross_correlate",
     "exposure_bjd",
@@ -84,22 +85,39 @@ MCMC_WALKERS, MCMC_STEPS, MCMC_BURN = 20, 900, 300
 # masks
 # ---------------------------------------------------------------------------
 def rv_mask_windows(
-    config: RVConfig, molecules: Molecules, activity_windows: Iterable[Window]
+    config: RVConfig,
+    molecules: Molecules,
+    activity_windows: Iterable[Window],
+    telluric_windows: Iterable[Window] | None = None,
 ) -> list[Window]:
-    """Windows excluded from the CCFs, each padded by ``pad_kms`` (not merged).
+    """Windows excluded from the CCFs (not merged).
 
-    Telluric bands of ``config.telluric_mask_molecules``, the activity windows if
-    ``config.mask_activity``, the user windows and file, each padded by ``pad_kms``.
+    Telluric: with ``telluric_mask = "model"`` the model windows *telluric_windows*
+    (:func:`~gtellcorr.preprocessing.telluric_mask.ensure_rv_telluric_windows`, already
+    padded); with ``"bands"``, or ``"model"`` without *telluric_windows* (a warning),
+    the bands of ``config.telluric_mask_molecules`` padded by ``pad_kms``. Then the
+    activity windows if ``config.mask_activity`` and the user windows and file, each
+    padded by ``pad_kms``.
     """
     windows: list[Window] = []
-    for m in config.telluric_mask_molecules:
-        windows.extend((float(b[0]), float(b[1])) for b in molecules[m].bands_nm)
+    padded: list[Window] = []
+    if config.telluric_mask == "model" and telluric_windows is not None:
+        padded.extend((float(lo), float(hi)) for lo, hi in telluric_windows)
+    else:
+        if config.telluric_mask == "model":
+            log.warning(
+                "rv.telluric_mask = 'model' but no telluric model windows were given; "
+                "masking the bands of %s instead",
+                ", ".join(config.telluric_mask_molecules),
+            )
+        for m in config.telluric_mask_molecules:
+            windows.extend((float(b[0]), float(b[1])) for b in molecules[m].bands_nm)
     if config.mask_activity:
         windows.extend((float(w[0]), float(w[1])) for w in activity_windows)
     windows.extend((float(w[0]), float(w[1])) for w in config.user_mask_nm)
     if config.user_mask_file:
         windows.extend(read_windows(config.user_mask_file, ordered=True))
-    return [pad_window(lo, hi, config.pad_kms) for lo, hi in windows]
+    return padded + [pad_window(lo, hi, config.pad_kms) for lo, hi in windows]
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +625,16 @@ def rv_orders(instrument: InstrumentSpec, config: RVConfig) -> list[int]:
     return list(instrument.orders)
 
 
+def ccf_grid_limits(config: RVConfig, vsini_kms: float | None = None) -> tuple[float, float]:
+    """Ends of the CCF velocity grid [km/s]: ``ccf_v_lo``-``ccf_v_hi``, each widened by
+    ``ccf_vsini_pad * vsini`` when *vsini_kms* is known (a rotationally broadened
+    CCF reaches ``vsini`` from its centre and needs its wings on the grid)."""
+    pad = 0.0
+    if vsini_kms is not None and np.isfinite(vsini_kms) and vsini_kms > 0:
+        pad = float(config.ccf_vsini_pad) * float(vsini_kms)
+    return float(config.ccf_v_lo) - pad, float(config.ccf_v_hi) + pad
+
+
 def measure_rv_table(
     exposures: Sequence[Exposure],
     template: tuple[Any, Any],
@@ -618,11 +646,13 @@ def measure_rv_table(
     formula: VacuumAirFormula = "espresso",
     seed: int | None = None,
     mcmc: bool = True,
+    vsini_kms: float | None = None,
 ) -> Path:
     """Measure every exposure's RV and write the RV tables and CCF products.
 
-    Orders with fewer than 50 fit-frame pixels are skipped. Returns the exposure
-    table path; whether an existing table is reused is decided by
+    Orders with fewer than 50 fit-frame pixels are skipped. *vsini_kms* (the target's)
+    widens the CCF grid (:func:`ccf_grid_limits`). Returns the exposure table path;
+    whether an existing table is reused is decided by
     :func:`gtellcorr.preprocessing.prepare.ensure_rv_table`.
     """
     from astropy.io import fits
@@ -638,6 +668,7 @@ def measure_rv_table(
     reader = readers.get(instrument.spectral.reader)
     tw, tf = template
     orders = rv_orders(instrument, config)
+    v_lo, v_hi = ccf_grid_limits(config, vsini_kms)
     exp_rows, po_rows, without_bjd = [], [], []
     for exposure in exposures:
         base = exposure.path.name
@@ -661,8 +692,8 @@ def measure_rv_table(
             tw,
             tf,
             mask_windows=mask_windows,
-            v_lo=float(config.ccf_v_lo),
-            v_hi=float(config.ccf_v_hi),
+            v_lo=v_lo,
+            v_hi=v_hi,
             dv=float(config.ccf_dv),
             mcmc=mcmc,
             n_walkers=MCMC_WALKERS,

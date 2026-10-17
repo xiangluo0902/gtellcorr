@@ -17,7 +17,7 @@ from gtellcorr.telluric.molecules import ENGINE_MOLECULES, MOLECULE_NAMES
 
 
 def test_reference_defaults() -> None:
-    assert Continuum() == Continuum(order=5, sigma_clip=(2.0, 3.0), niter=5)
+    assert Continuum() == Continuum(order=5, sigma_clip=(2.0, 3.0), niter=1)
     lsf = LSF()
     # None: the instrument's resolution.fit_tol, else 0.08
     assert lsf.kind == "gauss" and lsf.fit_resolution and lsf.resolution_tol is None

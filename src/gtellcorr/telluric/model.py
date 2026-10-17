@@ -9,8 +9,11 @@ the validated MIPAS reference atmosphere that supplies the eleven fixed molecule
 
 from __future__ import annotations
 
+import errno
+import subprocess
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +22,7 @@ import numpy as np
 from gtellcorr.errors import GtellcorrError, ResourceError
 from gtellcorr.settings import Settings
 from gtellcorr.telluric import order_cache as _oc
-from gtellcorr.telluric.config import TelluricConfig
+from gtellcorr.telluric.config import ContinuumMode, TelluricConfig
 from gtellcorr.telluric.geometry import Geometry
 
 if TYPE_CHECKING:
@@ -44,6 +47,29 @@ def _innermost(exc: BaseException) -> str:
     return str(exc) or type(exc).__name__
 
 
+def _workers_hint(exc: BaseException, workers: int | None) -> str:
+    """Advice when an LBLRTM run timed out or its work directory filled the disk,
+    which several runs at the same time make more likely."""
+    if workers == 1:
+        return ""
+    chain: list[BaseException] = []
+    cause: BaseException | None = exc
+    while cause is not None and cause not in chain:
+        chain.append(cause)
+        cause = cause.__cause__ or cause.__context__
+    if any(isinstance(e, subprocess.TimeoutExpired) for e in chain):
+        problem = "share the CPUs (each run is slower)"
+    elif any(isinstance(e, OSError) and e.errno == errno.ENOSPC for e in chain):
+        problem = "each need about 1 GB in TMPDIR"
+    else:
+        return ""
+    return (
+        f" LBLRTM runs made at the same time {problem}: set lblrtm_workers in the "
+        f"settings (or GTELLCORR_LBLRTM_WORKERS) to a smaller number, raise "
+        f"lblrtm_timeout_s, or point TMPDIR to a larger disk."
+    )
+
+
 class TelluricModel:
     """LBLRTM optical depths for fitting and forward modelling.
 
@@ -60,6 +86,9 @@ class TelluricModel:
         Wavelength margin around each order.
     timeout_s
         Wall-clock limit of one LBLRTM run (``Settings.lblrtm_timeout_s``).
+    lblrtm_workers
+        LBLRTM runs of a cache made at the same time (``Settings.lblrtm_workers``;
+        ``None``: automatic).
     vacuum_air_formula
         Vacuum-to-air formula of the cache grid; use that of the observations
         (``frames.vacuum_air_formula``).
@@ -75,6 +104,7 @@ class TelluricModel:
         tau_cache: str | Path,
         config: TelluricConfig | None = None,
         timeout_s: float = 600.0,
+        lblrtm_workers: int | None = None,
         verbose: bool = False,
         vacuum_air_formula: str = "espresso",
     ) -> None:
@@ -83,6 +113,7 @@ class TelluricModel:
         self.tau_cache = Path(tau_cache).expanduser().resolve()
         self.config = config or TelluricConfig()
         self.timeout_s = float(timeout_s)
+        self.lblrtm_workers = lblrtm_workers
         self.verbose = bool(verbose)
         self.vacuum_air_formula = str(vacuum_air_formula)
 
@@ -108,6 +139,7 @@ class TelluricModel:
             tau_cache=s.tau_cache,
             config=config,
             timeout_s=s.lblrtm_timeout_s,
+            lblrtm_workers=s.lblrtm_workers,
             verbose=verbose,
             vacuum_air_formula=vacuum_air_formula,
         )
@@ -117,6 +149,20 @@ class TelluricModel:
             f"TelluricModel(bundle={str(self.resources.bundle)!r}, "
             f"tau_cache={str(self.tau_cache)!r}, wave_margin_nm={self.config.wave_margin_nm}, "
             f"vacuum_air_formula={self.vacuum_air_formula!r})"
+        )
+
+    def with_continuum_mode(self, continuum_mode: ContinuumMode) -> TelluricModel:
+        """This model with another ``config.continuum_mode``: same LBLRTM bundle,
+        reference atmosphere, cache directory and run settings."""
+        return TelluricModel(
+            self.resources,
+            self.reference_atmosphere,
+            tau_cache=self.tau_cache,
+            config=replace(self.config, continuum_mode=continuum_mode),
+            timeout_s=self.timeout_s,
+            lblrtm_workers=self.lblrtm_workers,
+            verbose=self.verbose,
+            vacuum_air_formula=self.vacuum_air_formula,
         )
 
     # -- profile -------------------------------------------------------------
@@ -158,6 +204,8 @@ class TelluricModel:
             lblrtm_verbose=self.verbose,
             reference_atmosphere=self.reference_atmosphere,
             vacuum_air_formula=self.vacuum_air_formula,
+            continuum_mode=self.config.continuum_mode,
+            lblrtm_workers=self.lblrtm_workers,
         ):
             yield self
 
@@ -193,7 +241,7 @@ class TelluricModel:
                 f"LBLRTM optical depths for {lo:.2f}-{hi:.2f} nm could not be computed or "
                 f"read. Check the LBLRTM bundle with 'gtellcorr resources verify'; if the "
                 f"optical-depth cache in {self.tau_cache} is damaged, delete it and run "
-                f"again. Reason: {_innermost(exc)}"
+                f"again.{_workers_hint(exc, self.lblrtm_workers)} Reason: {_innermost(exc)}"
             ) from exc
 
     def order_cache_identity(

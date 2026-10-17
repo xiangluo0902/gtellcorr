@@ -1,6 +1,6 @@
 # Built-in instrument definition for gtellcorr.
 # Every key is described in gtellcorr.data.observation.instrument.InstrumentSpec.
-schema_version = 4
+schema_version = 5
 
 [instrument]
 # Registered name, ``"telescope/instrument"`` (e.g. ``"WIYN/NEID"``).
@@ -11,6 +11,8 @@ aliases = ["ESPRESSO"]
 site_token = "Paranal"
 # Site registry name used for coordinates missing from the headers.
 default_site = "paranal"
+# (card, value): keep only frames whose card equals value (case-insensitive).
+science_filter = ["ESO PRO CATG", "S2D_A"]
 # Epoch = start + EXPTIME/2.
 mid_exposure = true
 # All order indices of a spectrum file.
@@ -30,9 +32,11 @@ orders = [
 [instrument.identify]
 INSTRUME = "ESPRESSO"
 
-# Channel (fibre / arm) name -> file-name glob of its reduced spectra.
+# Channel (fibre / arm) name -> file-name glob of its reduced spectra, or a list of
+# globs when the same product is delivered under several names (e.g. pipeline and
+# archive files).
 [instrument.channels]
-all = "r.ESPRE.*_S2D_A.fits"
+all = ["r.ESPRE.*_S2D_A.fits", "ES_S2DA_*.fits"]
 
 # Resolving power: default and how to read it from the header.
 [instrument.resolution]
@@ -151,12 +155,13 @@ wave = "WAVEDATA_AIR_BARY"
 flux = "SCIDATA"
 # HDU with uncertainties (echelle readers).
 uncertainty = "ERRDATA"
+# HDU of pixel quality flags (echelle readers); pixels with a non-zero flag are
+# left out, as pixels without usable flux. ``None`` = no flags.
+quality = "QUALDATA"
 # Uncertainties given as variances (``var``) or standard deviations (``err``).
 uncertainty_kind = "err"
 # Unit of the delivered wavelengths.
 wave_unit = "A"
-# Primary-header card read by the spectrum reader for the airmass.
-airmass_card = "ESO TEL1 AIRM START"
 # Approximate spectral coverage [nm].
 wavelength_range_nm = [377.09, 790.51]
 

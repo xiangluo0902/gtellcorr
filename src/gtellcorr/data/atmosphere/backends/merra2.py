@@ -1,4 +1,4 @@
-"""Backend: NASA MERRA-2 via GES DISC OPeNDAP (.ascii)."""
+"""Backend: NASA MERRA-2 via Earthdata Cloud OPeNDAP (DAP4 CSV)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import contextlib
 import logging
 import re
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 import numpy as np
 
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # ==================================================================
-# Backend: NASA MERRA-2 via GES DISC OPeNDAP (.ascii)
+# Backend: NASA MERRA-2 via Earthdata Cloud OPeNDAP (DAP4 CSV)
 # ==================================================================
 # Product:  M2I3NPASM  — Modern-Era Retrospective analysis for Research
 #           and Applications, v2; 3-hourly, instantaneous, pressure-
@@ -34,10 +35,13 @@ logger = logging.getLogger(__name__)
 # Auth   :  NASA Earthdata Login bearer token,
 #           WEATHER_KEYS['merra2_gesdisc']['EARTHDATA_TOKEN'] in the
 #           credentials file (Settings.credentials_file).
-# Access :  OPeNDAP server returns one .ascii response per query;
-#           we URL-encode a *single-point* subset for (T, QV, H) plus
+# Access :  Earthdata Cloud OPeNDAP returns one CSV response per query;
+#           we request the DAP4 subset of the 2x2 grid cell around the
+#           site for (T, QV, H) plus
 #           the coordinate variables, parse the text, and assemble a
 #           AtmosphereProfile.  Stays inside the requests-only stack.
+#           (GES DISC retired its own OPeNDAP server, goldsmr5, in 2026;
+#           it now answers HTTP 410.)
 #
 # File names rotate by "stream" (= reprocessing version):
 #       MERRA2_100   1980-01-01 → 1991-12-31
@@ -46,7 +50,11 @@ logger = logging.getLogger(__name__)
 #       MERRA2_400   2011-01-01 → present
 # (Occasional MERRA2_401 replacements occur in the post-2020 window;
 #  the loader retries with _401 if _400 returns 404.)
-GESDISC_OPENDAP_BASE = "https://goldsmr5.gesdisc.eosdis.nasa.gov/opendap/MERRA2/M2I3NPASM.5.12.4"
+#: Earthdata Cloud OPeNDAP granules of M2I3NPASM (CMR collection C1276812879-GES_DISC).
+OPENDAP_GRANULES = (
+    "https://opendap.earthdata.nasa.gov/collections/C1276812879-GES_DISC/granules/"
+    "M2I3NPASM.5.12.4%3A"
+)
 
 # MERRA-2 pressure-level vertical coordinate (hPa).  Hard-coded because
 # it's a documented fixed grid; we still cross-check against the
@@ -111,22 +119,6 @@ def _merra2_stream_for(date_utc: datetime) -> str:
     return "MERRA2_400"
 
 
-def _merra2_grid_index(lat: float, lon: float) -> tuple[int, int, float, float]:
-    """Return (lat_idx, lon_idx, lat_grid, lon_grid) for nearest MERRA-2
-    grid point.  MERRA-2 grid is 0.5° lat × 0.625° lon, with lat from
-    -90 (index 0) to +90 (index 360) and lon from -180 (index 0) to
-    +179.375 (index 575)."""
-    lat_idx = round((lat + 90.0) / 0.5)
-    lat_idx = max(0, min(lat_idx, 360))
-    # Normalise lon to (-180, 180]
-    lon_n = lon - 360.0 if lon > 180.0 else lon
-    lon_idx = round((lon_n + 180.0) / 0.625)
-    lon_idx = lon_idx % 576  # wrap (handles 180 → 0)
-    lat_g = -90.0 + 0.5 * lat_idx
-    lon_g = -180.0 + 0.625 * lon_idx
-    return lat_idx, lon_idx, lat_g, lon_g
-
-
 def _merra2_brackets(lat: float, lon: float) -> tuple[int, int, int, int]:
     """Contiguous bracketing grid indices (i0, i1, j0, j1) of the 2x2 cell
     surrounding (lat, lon), for bilinear interpolation.  lat grid is
@@ -178,7 +170,7 @@ def fetch_merra2_gesdisc(
     session=None,
     interpolate: bool = True,
 ) -> AtmosphereProfile:
-    """Fetch a single-point MERRA-2 ``M2I3NPASM`` profile via GES DISC OPeNDAP.
+    """Fetch a single-point MERRA-2 ``M2I3NPASM`` profile via Earthdata Cloud OPeNDAP.
 
     Parameters
     ----------
@@ -208,7 +200,7 @@ def fetch_merra2_gesdisc(
 
     Notes
     -----
-    The OPeNDAP ``.ascii`` response is plain text; we use a small hand-
+    The OPeNDAP DAP4 CSV response is plain text; we use a small hand-
     written parser to avoid pulling in ``pydap`` / ``xarray``.  Specific
     humidity (kg H2O / kg moist air) is converted to volume mixing ratio
     (ppmv) via the dry/moist molar-mass identity::
@@ -232,33 +224,33 @@ def fetch_merra2_gesdisc(
     # date) so a cycle that rolls across a year boundary picks the correct
     # MERRA2_xxx stream.
     stream = _merra2_stream_for(cycle_dt)
-    if interpolate:
-        # Fetch the surrounding 2x2 grid cell and bilinearly interpolate to
-        # the exact (lat, lon) -- parity with the ERA5 backend.
-        i0, i1, j0, j1 = _merra2_brackets(lat, lon)
-        lat_sub, lon_sub = f"{i0}:{i1}", f"{j0}:{j1}"
-        lat_g, lon_g = lat, lon
-    else:
-        lat_idx, lon_idx, lat_g, lon_g = _merra2_grid_index(lat, lon)
-        lat_sub, lon_sub = f"{lat_idx}:{lat_idx}", f"{lon_idx}:{lon_idx}"
+    # Fetch the surrounding 2x2 grid cell, then either interpolate bilinearly to the
+    # exact (lat, lon) -- parity with the ERA5 backend -- or take its node nearest to
+    # the site. (The cloud OPeNDAP CSV returns no values when the last dimension is a
+    # single index, so a single node is never requested on its own.)
+    i0, i1, j0, j1 = _merra2_brackets(lat, lon)
+    lat_sub, lon_sub = f"{i0}:1:{i1}", f"{j0}:1:{j1}"
+    lat_g, lon_g = lat, lon
 
-    # Build the .ascii subset URL.  Vars: T, QV (specific humidity), H
+    # Build the DAP4 CSV subset URL.  Vars: T, QV (specific humidity), H
     # (geopotential height); plus the coord vars so we can verify the
     # grid point the server actually resolved to.
     def _build_url(stream_name: str) -> str:
-        """OPeNDAP ``.ascii`` URL of the single-point subset in *stream_name*."""
+        """OPeNDAP DAP4 CSV URL of the grid-cell subset in *stream_name*."""
         fname = f"{stream_name}.inst3_3d_asm_Np.{cycle_dt:%Y%m%d}.nc4"
-        # OPeNDAP single-index subset syntax: VAR[t:t][lev:lev][lat:lat][lon:lon]
-        subset = (
-            f"T[{t_idx}:{t_idx}][0:41][{lat_sub}][{lon_sub}],"
-            f"QV[{t_idx}:{t_idx}][0:41][{lat_sub}][{lon_sub}],"
-            f"H[{t_idx}:{t_idx}][0:41][{lat_sub}][{lon_sub}],"
-            f"lev[0:41],"
-            f"lat[{lat_sub}],"
-            f"lon[{lon_sub}],"
-            f"time[{t_idx}:{t_idx}]"
+        # DAP4 subset syntax: /VAR[start:stride:stop] per dimension, ";" between
+        ce = ";".join(
+            [
+                f"/T[{t_idx}:1:{t_idx}][0:1:41][{lat_sub}][{lon_sub}]",
+                f"/QV[{t_idx}:1:{t_idx}][0:1:41][{lat_sub}][{lon_sub}]",
+                f"/H[{t_idx}:1:{t_idx}][0:1:41][{lat_sub}][{lon_sub}]",
+                "/lev[0:1:41]",
+                f"/lat[{lat_sub}]",
+                f"/lon[{lon_sub}]",
+                f"/time[{t_idx}:1:{t_idx}]",
+            ]
         )
-        return f"{GESDISC_OPENDAP_BASE}/{cycle_dt:%Y}/{cycle_dt:%m}/{fname}.ascii?{subset}"
+        return f"{OPENDAP_GRANULES}{fname}.dap.csv?dap4.ce={quote(ce, safe='/[]:;')}"
 
     url = _build_url(stream)
     logger.info("MERRA-2 fetch: %s", url)
@@ -311,27 +303,27 @@ def fetch_merra2_gesdisc(
             f"invalid date).  Head:\n{text[:400]}"
         )
 
-    parsed = _parse_opendap_ascii(text)
+    parsed = _parse_opendap_csv(text)
 
     # Pull the four arrays we need from the parsed bag of variables.
     try:
         lev_hpa = np.asarray(parsed["lev"], dtype=float).ravel()
+        nlev = lev_hpa.size
+
+        def _block(name):
+            """Variable *name* of the response as a (level, 2, 2) array."""
+            a = np.asarray(parsed[name], dtype=float).ravel()
+            if a.size != nlev * 4:
+                raise ProfileFetchError(
+                    f"MERRA-2 {name}: expected {nlev * 4} values for the "
+                    f"2x2 grid cell, got {a.size}"
+                )
+            return a.reshape(nlev, 2, 2)  # [lev, lat, lon]
+
+        lats = np.asarray(parsed["lat"], dtype=float).ravel()
+        lons = np.asarray(parsed["lon"], dtype=float).ravel()
+        lon_n = lon - 360.0 if lon > 180.0 else lon
         if interpolate:
-            nlev = lev_hpa.size
-
-            def _block(name):
-                """Variable *name* of the response as a (level, 2, 2) array."""
-                a = np.asarray(parsed[name], dtype=float).ravel()
-                if a.size != nlev * 4:
-                    raise ProfileFetchError(
-                        f"MERRA-2 {name}: expected {nlev * 4} values for the "
-                        f"2x2 interpolation block, got {a.size}"
-                    )
-                return a.reshape(nlev, 2, 2)  # [lev, lat, lon]
-
-            lats = np.asarray(parsed["lat"], dtype=float).ravel()
-            lons = np.asarray(parsed["lon"], dtype=float).ravel()
-            lon_n = lon - 360.0 if lon > 180.0 else lon
             wlat = (
                 0.0
                 if lats[1] == lats[0]
@@ -362,12 +354,15 @@ def fetch_merra2_gesdisc(
             QV = _bilin(_block("QV"))
             H_m = _bilin(_block("H"))
         else:
-            T_K = np.asarray(parsed["T"], dtype=float).ravel()
-            QV = np.asarray(parsed["QV"], dtype=float).ravel()
-            H_m = np.asarray(parsed["H"], dtype=float).ravel()
+            ia = int(np.argmin(np.abs(lats - lat)))
+            ja = int(np.argmin(np.abs(lons - lon_n)))
+            lat_g, lon_g = float(lats[ia]), float(lons[ja])
+            T_K = _block("T")[:, ia, ja]
+            QV = _block("QV")[:, ia, ja]
+            H_m = _block("H")[:, ia, ja]
     except KeyError as e:
         raise ProfileFetchError(
-            f"MERRA-2 .ascii response missing variable {e}; got keys={list(parsed)}"
+            f"MERRA-2 response missing variable {e}; got keys={list(parsed)}"
         ) from None
 
     # Cross-check vertical grid (cheap sanity).
@@ -441,27 +436,24 @@ def fetch_merra2_gesdisc(
     return prof
 
 
-def _parse_opendap_ascii(text: str) -> dict:
-    """Parse a GES DISC OPeNDAP ``.ascii`` response into a dict of arrays.
+def _parse_opendap_csv(text: str) -> dict:
+    """Parse an OPeNDAP DAP4 CSV (or the older ``.ascii``) response into a dict of
+    arrays.
 
-    Format observed (from MERRA-2 M2I3NPASM, one value per row):
+    Format (MERRA-2 M2I3NPASM; the last dimension runs along each row)::
 
         Dataset: {filename}
-        T[0][0][0], 1e+15
-        T[0][1][0], 1e+15
+        /time, 540
+        /lat, 32.5, 33
+        /lev, 1000, 975, 950, 925, ...
+        /lon, -110, -109.375
+        /T[0][0][0], 1e+15, 1e+15
+        /T[0][0][1], 1e+15, 1e+15
         ...
-        T[0][41][0], 217.5
-        QV[0][0][0], 1e+15
-        ...
-        lev, 1000, 975, 950, 925, ...
-        lat, -32.5
-        lon, 20.625
-        time, 540
 
-    Each data line starts with ``VAR[index_tuple]`` followed by ``, value``;
-    each coordinate line starts with ``VAR,`` followed by comma-separated
-    values.  We dispatch on whether the substring before the first comma
-    contains a ``[``.
+    Each line starts with a variable name (``/`` optional), with or without
+    bracket indices, followed by comma-separated values; the values of a
+    variable are concatenated in the order of the lines.
     """
     out: dict[str, list[float]] = {}
     var_re = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)")
@@ -474,7 +466,7 @@ def _parse_opendap_ascii(text: str) -> dict:
         if "," not in line:
             continue
         lhs, _, rhs = line.partition(",")
-        lhs = lhs.strip()
+        lhs = lhs.strip().lstrip("/")
         m = var_re.match(lhs)
         if not m:
             continue

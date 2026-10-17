@@ -17,3 +17,11 @@ def test_wave_margin() -> None:
     assert TelluricConfig().wave_margin_nm == 20.0
     with pytest.raises(ConfigError, match=r"^wave_margin_nm: must be >= 0"):
         TelluricConfig(wave_margin_nm=-1)
+
+
+def test_continuum_mode() -> None:
+    assert TelluricConfig().continuum_mode == "full"
+    assert TelluricConfig(continuum_mode="none").continuum_mode == "none"
+    assert TelluricConfig(continuum_mode="scaled").continuum_mode == "scaled"
+    with pytest.raises(ConfigError, match=r"^continuum_mode: must be one of"):
+        TelluricConfig(continuum_mode="partial")  # type: ignore[arg-type]

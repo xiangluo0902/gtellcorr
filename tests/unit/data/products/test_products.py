@@ -67,8 +67,13 @@ def _write(path: Path, depth: float, t: datetime) -> Path:
 def test_fits_roundtrip(tmp_path: Path) -> None:
     path = _write(tmp_path / "e1_joint_corrected_all_orders.fits", 0.5, T0)
     with fits.open(path) as h:
-        assert h[0].header["GTSCHEMA"] == "S2DIMGV2" and h[0].header["NPIXMAX"] == 50
-        assert h["EXCLUSION"].data[0, 40:].tolist() == [1] * 10  # padding excluded
+        assert h[0].header["GTSCHEMA"] == "S2DIMGV3" and h[0].header["NPIXMAX"] == 50
+        assert h["EXCLUSION"].data[0, 40:].tolist() == [2] * 10  # beyond the order: no data
+        assert h["ORDER_SUMMARY"].data["n_input"].tolist() == [40, 50]
+        comments = [str(c) for c in h["EXCLUSION"].header["COMMENT"]]
+        assert comments[0] == "EXCLUSION, per pixel:" and all(len(c) <= 72 for c in comments)
+        assert any("used_in_fit" in c for c in comments)
+        assert h["EXCLUSION"].header["BUNIT"] == "flag_uint8"
         assert h["ORDER_SUMMARY"].data["order"].tolist() == [0, 1]
     assert read_provenance(path) == {"GTC_VERS": "x", "CFG_HASH": "abc"}
     d = load_exposure_order(path, 1)
@@ -99,6 +104,88 @@ def test_fits_roundtrip(tmp_path: Path) -> None:
         update_order_columns(path, 1, {"EXTRA": np.arange(3.0)})
     with pytest.raises(ValueError, match="already exists"):
         update_order_columns(path, 1, {"EXTRA": np.arange(50.0)}, overwrite_columns=False)
+
+
+def _grid(result: OrderFitResult, kept: np.ndarray) -> Any:
+    """The delivered order of *result*: its pixels at *kept*, flux 0 and error 1 elsewhere."""
+    from gtellcorr.data.observation import InputGrid
+
+    n = kept.size
+    wave = np.linspace(float(result.wave_fit[0]) - 0.1, float(result.wave_fit[-1]) + 0.1, n)
+    wave[kept] = result.wave_fit
+    flux, err = np.zeros(n), np.ones(n)
+    flux[kept], err[kept] = result.flux_obs, result.err
+    return InputGrid(wave_input=wave.copy(), wave_fit=wave, flux=flux, err=err, kept=kept)
+
+
+def test_results_on_the_delivered_grid(tmp_path: Path) -> None:
+    fitted, other = _result(1, 50), _result(0, 40)
+    fitted.exclusion = np.arange(50) % 10 == 0
+    fitted.wave_shift = (0.5,)
+    kept = np.ones(60, bool)
+    kept[[0, 1, 30, 31, 32, 59, 58, 57, 56, 55]] = False  # gaps at the ends and inside
+    grid = _grid(fitted, kept)
+    path = write_exposure_fits(
+        tmp_path / "e1_joint_corrected_all_orders.fits", [fitted, other], exposure="e1.fits",
+        instrument="ESPRESSO", correction_mode="joint_orders", grids={1: grid},
+        order_metadata={1: {"used_in_fit": True}},
+        run_metadata={"time_utc": T0.isoformat()},
+    )  # fmt: skip
+    with fits.open(path) as h:
+        assert h[0].header["NPIXMAX"] == 60
+        summary = h["ORDER_SUMMARY"].data
+        assert summary["n_pixels"].tolist() == [40, 50] and summary["n_input"].tolist() == [40, 60]
+        flags = h["EXCLUSION"].data[1]
+        assert np.array_equal(flags[~kept], np.full(10, 2))
+        assert np.array_equal(flags[kept], fitted.exclusion.astype(np.uint8))
+        assert np.array_equal(h["FLUX_OBS"].data[1], grid.flux)  # every delivered pixel
+        assert np.array_equal(h["WAVE_INPUT"].data[1], grid.wave_input)
+        assert np.isnan(h["TELL_MODEL"].data[1][~kept]).all()
+        assert np.isnan(h["WAVE_FIT_CORR"].data[1][~kept]).all()
+        assert h["EXCLUSION"].data[0, 40:].tolist() == [2] * 20
+    d = load_exposure_order(path, 1)
+    assert d["wave_fit"].size == 60 and np.array_equal(d["kept"], kept)
+    assert np.array_equal(d["tell_model"][kept], fitted.tell_model)
+    assert np.array_equal(d["wave_fit_corr"][kept], fitted.wave_fit_corr)
+    assert np.array_equal(
+        d["exclusion"], ~kept | np.isin(np.arange(60), np.flatnonzero(kept)[fitted.exclusion])
+    )
+    assert load_exposure_order(path, 0)["kept"].all()  # written without a grid
+    result = ExposureResult(path)
+    assert result.no_data.sum() == 10 + 20 and result.exclusion.sum() == 10 + 20 + 5
+    rows = read_order_timeseries(tmp_path, 1)
+    assert np.array_equal(rows[0]["kept"], kept)
+    update_order_columns(path, 1, {"EXTRA": np.arange(60.0)})
+    with pytest.raises(ValueError, match="does not match"):
+        update_order_columns(path, 1, {"EXTRA": np.arange(50.0)})
+    with pytest.raises(ValueError, match="input grid keeps 50 pixels, the result has 40"):
+        write_exposure_fits(tmp_path / "x.fits", [other], exposure="x", instrument="I",
+                            correction_mode="joint_orders", grids={0: grid})  # fmt: skip
+    # an S2DIMGV2 file (no n_input): the usable pixels from the row start, all kept
+    with fits.open(path) as h:
+        columns = [c for c in h["ORDER_SUMMARY"].columns if c.name != "n_input"]
+        h["ORDER_SUMMARY"] = fits.BinTableHDU.from_columns(columns, name="ORDER_SUMMARY")
+        h.writeto(tmp_path / "v2.fits")
+    old = load_exposure_order(tmp_path / "v2.fits", 1)
+    assert old["wave_fit"].size == 50 and old["kept"].all()
+
+
+def test_pca_models_are_nan_without_data(tmp_path: Path) -> None:
+    kept = np.ones(60, bool)
+    kept[25:35] = False
+    for i, depth in enumerate((0.3, 0.5, 0.7)):
+        r = _result(1, 50, depth)
+        write_exposure_fits(
+            tmp_path / f"e{i}_joint_corrected_all_orders.fits", [r], exposure=f"e{i}.fits",
+            instrument="ESPRESSO", correction_mode="joint_orders", grids={1: _grid(r, kept)},
+            order_metadata={1: {"used_in_fit": True}},
+            run_metadata={"time_utc": (T0 + timedelta(minutes=10 * i)).isoformat()},
+        )  # fmt: skip
+    compute_telluric_pca_for_run(tmp_path, n_components=2)
+    d = load_exposure_order(tmp_path / "e1_joint_corrected_all_orders.fits", 1)
+    assert d["pca_models"].shape == (2, 60) and np.isnan(d["pca_models"][:, ~kept]).all()
+    inside = np.isfinite(d["pca_models"][1])
+    np.testing.assert_allclose(d["pca_models"][1][inside], d["tell_model"][inside], atol=1e-10)
 
 
 def test_pca_and_timeseries(tmp_path: Path) -> None:
@@ -135,7 +222,10 @@ def test_summary_rows(tmp_path: Path) -> None:
     r.wave_shift = (0.0412345678, -0.01)
     assert joint_row("e.fits", r, "t", 0.0)[col("wavesol_coeffs")] == "[0.04123, -0.01]"
     r.converged, r.n_eval = False, 37
-    assert joint_row("e.fits", r, "t", 0.0)[col("converged") :] == ["false", "37"]
+    assert joint_row("e.fits", r, "t", 0.0)[col("converged") : col("n_eval") + 1] == ["false", "37"]
+    assert joint_row("e.fits", r, "t", 0.0)[col("stellar_shift")] == ""  # template not moved
+    r.stellar_shift = -0.0456789
+    assert joint_row("e.fits", r, "t", 0.0)[col("stellar_shift")] == "-0.04568"
     assert single_row("e.fits", r, "t", 0.0, fitted=True)[12:14] == ["", ""]
     assert single_row("e.fits", r, "t", 0.0, fitted=False)[6:16] == [""] * 10
     assert skipped_row("e.fits", 3, "t", error=KeyError())[16] == "ERROR:KeyError"
@@ -221,6 +311,32 @@ def test_wavelength_solution_columns(tmp_path: Path) -> None:
     assert {row[shift] for row in summary_rows_from_fits(older, "t")} == {""}
 
 
+@pytest.mark.parametrize(
+    "exposure",
+    [
+        "e.fits",
+        "ES_S2DA_2361220_2019-02-28T06:30:27.946_HR_2x1_U3.fits",  # an ESO archive name
+        "x" * 68,
+    ],
+)
+def test_long_header_values_drop_the_comment(tmp_path: Path, exposure: str) -> None:
+    instrument = "AN_OBSERVATORY/" + "S" * 53  # 68 characters: no room for a comment
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # no truncated header cards
+        path = write_exposure_fits(
+            tmp_path / "e_joint_corrected_all_orders.fits", [_result(1, 50)],
+            exposure=exposure, instrument=instrument, correction_mode="joint_orders",
+        )  # fmt: skip
+        with fits.open(path) as h:
+            hdr = h[0].header
+            assert hdr["EXPOSURE"] == exposure
+            assert hdr["INSTRUME"] == instrument
+            fits_in_card = len(exposure) + len("EXPOSURE= ''") + len(" / input spectrum file")
+            expected = "input spectrum file" if fits_in_card <= 80 else ""
+            assert hdr.comments["EXPOSURE"] == expected
+            h.verify("exception")
+
+
 def test_corrected_wavelength_hdus(tmp_path: Path) -> None:
     fitted = _result(1, 50)
     fitted.wave_input = fitted.wave_fit * (1.0 + 5.0 / C_KMS)  # a different delivered frame
@@ -281,7 +397,8 @@ def test_convergence_columns(tmp_path: Path) -> None:
     )
     col = SUMMARY_COLUMNS.index("converged")
     rows = {row[1]: row for row in summary_rows_from_fits(path, "t")}
-    assert rows[1][col:] == ["false", "41"]
+    assert rows[1][col : col + 2] == ["false", "41"]
+    assert rows[1][SUMMARY_COLUMNS.index("stellar_shift")] == ""  # template not moved
     # products written before the columns existed read as unknown
     with fits.open(path) as h:
         table = h["ORDER_SUMMARY"]
@@ -290,4 +407,4 @@ def test_convergence_columns(tmp_path: Path) -> None:
         h.writeto(tmp_path / "old.fits")
     old = load_exposure_order(tmp_path / "old.fits", 1)
     assert (old["converged"], old["n_eval"]) == (None, None)
-    assert summary_rows_from_fits(tmp_path / "old.fits", "t")[0][col:] == ["", ""]
+    assert summary_rows_from_fits(tmp_path / "old.fits", "t")[0][col:] == ["", "", ""]

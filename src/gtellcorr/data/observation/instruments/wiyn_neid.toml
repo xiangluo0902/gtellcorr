@@ -1,6 +1,6 @@
 # Built-in instrument definition for gtellcorr.
 # Every key is described in gtellcorr.data.observation.instrument.InstrumentSpec.
-schema_version = 4
+schema_version = 5
 
 [instrument]
 # Registered name, ``"telescope/instrument"`` (e.g. ``"WIYN/NEID"``).
@@ -27,7 +27,9 @@ orders = [
 [instrument.identify]
 INSTRUME = "NEID"
 
-# Channel (fibre / arm) name -> file-name glob of its reduced spectra.
+# Channel (fibre / arm) name -> file-name glob of its reduced spectra, or a list of
+# globs when the same product is delivered under several names (e.g. pipeline and
+# archive files).
 [instrument.channels]
 all = "neidL2_*.fits"
 
@@ -143,8 +145,6 @@ blaze = "SCIBLAZE"
 uncertainty_kind = "var"
 # Unit of the delivered wavelengths.
 wave_unit = "A"
-# Primary-header card read by the spectrum reader for the airmass.
-airmass_card = "AIRMASS"
 # Approximate spectral coverage [nm].
 wavelength_range_nm = [357.09, 1105.0]
 

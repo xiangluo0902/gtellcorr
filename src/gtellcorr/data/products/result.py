@@ -17,6 +17,7 @@ from gtellcorr.data.products.fits_schema import (
     _WAVESOL_COLUMNS,
     CORRECTED_WAVE_HDU_NAMES,
     EXPOSURE_FITS_PATTERNS,
+    NO_DATA,
     S2D_IMAGE_HDU_NAMES,
     _is_s2d,
 )
@@ -29,7 +30,13 @@ __all__ = ["ExposureResult", "Result", "load_result", "summary_rows_from_fits"]
 
 @dataclass(frozen=True)
 class ExposureResult:
-    """One exposure's result FITS, as arrays of shape ``(n_order, n_pixel)`` (NaN-padded)."""
+    """One exposure's result FITS, as arrays of shape ``(n_order, n_pixel)``.
+
+    Pixel ``i`` of a row is pixel ``i`` of the delivered order (NaN beyond the order);
+    the fitted products are NaN where the input pixel has no usable data
+    (:attr:`no_data`). In files of gtellcorr 0.9 the rows hold the usable pixels from
+    their start, NaN-padded.
+    """
 
     path: Path
     """The result FITS file."""
@@ -87,8 +94,16 @@ class ExposureResult:
 
     @property
     def exclusion(self) -> NDArray[Any]:
-        """``EXCLUSION`` as booleans: ``True`` = pixel left out of the fit."""
+        """``EXCLUSION`` as booleans: ``True`` = pixel masked (1) or without usable data
+        (2); ``False`` = used (in the molecular fit only in orders with ``used_in_fit``)."""
         return self.image("EXCLUSION").astype(bool)
+
+    @property
+    def no_data(self) -> NDArray[Any]:
+        """``True`` where the input pixel has no usable flux, error or wavelength, and
+        beyond the order (``EXCLUSION`` = 2; never in files of gtellcorr 0.9, whose
+        padding is ``EXCLUSION`` = 1)."""
+        return np.asarray(self.image("EXCLUSION") == NO_DATA)
 
     @property
     def order_table(self) -> Any:
@@ -173,6 +188,15 @@ def _outcome_cells(row: Any) -> list[str]:
     return [str(row["converged"]).strip(), str(n_eval) if n_eval >= 0 else ""]
 
 
+def _stellar_shift_cell(row: Any) -> str:
+    """``stellar_shift`` summary cell of an ``ORDER_SUMMARY`` row (empty when not moved
+    and in older result files)."""
+    if "stellar_shift" not in (row.array.names or []):
+        return ""
+    value = float(row["stellar_shift"])
+    return f"{value:.5f}" if np.isfinite(value) else ""
+
+
 def summary_rows_from_fits(path: str | os.PathLike[str], time_iso: str) -> list[list[Any]]:
     """Summary rows of the fitted orders of an existing result (``elapsed_s`` empty)."""
     rows = []
@@ -195,6 +219,7 @@ def summary_rows_from_fits(path: str | os.PathLike[str], time_iso: str) -> list[
                     f"{float(r['masked_frac']):.3f}",
                     "" if not np.isfinite(shape) else f"{shape:.4f}",
                     str(r["status"]).strip(), "", _shift_cell(r), *_outcome_cells(r),
+                    _stellar_shift_cell(r),
                 ]
             )  # fmt: skip
     return rows

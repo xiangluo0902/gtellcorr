@@ -11,6 +11,7 @@ dist/
 htmlcov/
 .DS_Store
 .ipynb_checkpoints/
+docs/manual/_build/
 *.env
 .env
 
@@ -21,3 +22,17 @@ ispec.log
 *.log
 # local analysis workspaces (not part of the package)
 tests/pepsi_*/
+tests/meteo_comparison/
+tests/simulation/
+tests/gj436_phoenix/
+tests/r1_5_taucache/
+tests/paper_rerun/
+tests/espresso_o2_bands/
+tests/r1_iii_rv_precision/
+tests/continuum_strategy/
+tests/espresso_o2_cause/
+tests/r_resolution/
+tests/paper_figures/
+tests/ccf_bias/
+tests/v0100_rerun/
+tests/line_elements/

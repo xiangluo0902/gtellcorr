@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,6 +20,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from gtellcorr.data.observation.frames import vac_to_air
+from gtellcorr.data.observation.instrument import start_resolution
 from gtellcorr.errors import ConfigError, DataError
 from gtellcorr.preprocessing import rv as rvmod
 from gtellcorr.preprocessing.stellar_mask import (
@@ -34,12 +35,15 @@ from gtellcorr.preprocessing.synthesis import (
     load_template,
     template_filename,
 )
-from gtellcorr.preprocessing.windows import Window, read_windows
+from gtellcorr.preprocessing.windows import C_KMS, Window, read_windows
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from gtellcorr.config.fit_config import FitConfig
     from gtellcorr.data.observation.observation import Observation
     from gtellcorr.data.products.layout import RunLayout
+    from gtellcorr.preprocessing.telluric_mask import LineTransmission
     from gtellcorr.settings import Settings
 
 __all__ = [
@@ -120,7 +124,8 @@ def template_path(
 ) -> Path:
     """``stellar_model.template_file`` if set, else the synthesised template in the run's
     template directory, named by :func:`~gtellcorr.preprocessing.synthesis.template_filename`
-    at the instrument's wavelength range and default R."""
+    at the instrument's wavelength range and the start R of the fit
+    (:func:`~gtellcorr.data.observation.instrument.start_resolution`)."""
     if config.stellar_model.template_file is not None:
         return Path(config.stellar_model.template_file).expanduser()
     spec = observation.instrument
@@ -131,7 +136,7 @@ def template_path(
     name = template_filename(
         _synthesis(observation, config, settings),
         wave_range_nm=tuple(spec.spectral.wavelength_range_nm),  # type: ignore[arg-type]
-        resolution=float(spec.resolution.default),
+        resolution=_start_resolution(observation, config),
     )
     return layout.template_dir / name
 
@@ -143,8 +148,8 @@ def load_stellar_template(
 
     A user-supplied ``stellar_model.template_file`` is converted to air
     (``template_medium = "vacuum"``) and broadened from ``template_resolution`` to the
-    exposures' common R (header R, else the instrument default); a synthesised
-    template is used as written.
+    start R of the fit (:func:`~gtellcorr.data.observation.instrument.start_resolution`);
+    a synthesised template is used as written (it was synthesised at that R).
     """
     wave, flux = load_template(path)
     sm = config.stellar_model
@@ -157,23 +162,14 @@ def load_stellar_template(
             wave,
             flux,
             from_resolution=float(sm.template_resolution),
-            to_resolution=_exposure_resolution(observation),
+            to_resolution=_start_resolution(observation, config),
         )
     return wave, flux
 
 
-def _exposure_resolution(observation: Observation) -> float:
-    """The exposures' common R (header, e.g. PEPSI fibre); the instrument default if none."""
-    values = sorted({float(e.resolution) for e in observation.exposures})
-    if not values:
-        return float(observation.instrument.resolution.default)
-    if len(values) > 1:
-        raise ConfigError(
-            f"the exposures have different resolving powers {values}: the template can be "
-            "broadened to only one; fit them in separate runs or provide a template at "
-            "their resolution (template_resolution unset)"
-        )
-    return values[0]
+def _start_resolution(observation: Observation, config: FitConfig) -> float:
+    """The R the stellar template is broadened to (the start R of the fit)."""
+    return start_resolution(observation.exposures, observation.instrument, config.lsf.resolution)
 
 
 def ensure_template(
@@ -211,7 +207,7 @@ def ensure_template(
         _synthesis(observation, config, settings),
         path,
         wave_range_nm=tuple(spec.spectral.wavelength_range_nm),  # type: ignore[arg-type]
-        resolution=float(spec.resolution.default),
+        resolution=_start_resolution(observation, config),
         workers=workers,
     )
     return path, "generated"
@@ -224,9 +220,15 @@ def ensure_rv_table(
     template: tuple[Any, Any],
     *,
     seed: int | None = 0,
+    telluric_windows: Sequence[Window] | None = None,
 ) -> tuple[Path, str]:
     """The run's RV table: from ``rv.user_rv_file``, else reused if it covers every
-    exposure and was measured, else measured."""
+    exposure, was measured and was measured with the same settings (:func:`_rv_settings`;
+    a table without a settings record is reused only if the settings are those of the
+    earlier versions: band windows and a fixed CCF grid), else measured.
+
+    *telluric_windows* are the model windows of ``rv.telluric_mask = "model"``
+    (:func:`~gtellcorr.preprocessing.telluric_mask.ensure_rv_telluric_windows`)."""
     marker = _rv_source_marker(layout)
     if config.rv.source == "user_file":
         assert config.rv.user_rv_file is not None  # RVConfig.validate
@@ -236,13 +238,21 @@ def ensure_rv_table(
         marker.write_text(f"user_file {Path(config.rv.user_rv_file).expanduser().resolve()}\n")
         return path, "user_file"
     names = [e.path.name for e in observation.exposures]
+    vsini = None if observation.target is None else observation.target.vsini_kms
+    windows = rvmod.rv_mask_windows(
+        config.rv, config.molecules, config.masks.activity_windows_nm, telluric_windows
+    )
+    settings = _rv_settings(config, template, windows, vsini, model=telluric_windows is not None)
+    record = _rv_settings_record(layout)
     if (
         not marker.exists()
         and layout.rv_table.exists()
         and rvmod.rv_table_covers(layout.rv_table, names)
     ):
-        return layout.rv_table, "reused"
-    windows = rvmod.rv_mask_windows(config.rv, config.molecules, config.masks.activity_windows_nm)
+        stale = _stale_rv_table(record, settings, config)
+        if stale is None:
+            return layout.rv_table, "reused"
+        log.info("measuring the RVs again: %s", stale)
     path = rvmod.measure_rv_table(
         observation.exposures,
         template,
@@ -252,8 +262,10 @@ def ensure_rv_table(
         mask_windows=windows,
         formula=config.frames.vacuum_air_formula,
         seed=seed,
+        vsini_kms=vsini,
     )
     marker.unlink(missing_ok=True)
+    record.write_text(json.dumps(settings, indent=1) + "\n")
     return path, "generated"
 
 
@@ -262,7 +274,57 @@ def _rv_source_marker(layout: RunLayout) -> Path:
     return layout.rv_table.with_name(f"{layout.rv_table.stem}_source.txt")
 
 
-def _linemask_settings(config: FitConfig, products: StellarProducts) -> dict[str, Any]:
+def _rv_settings_record(layout: RunLayout) -> Path:
+    """Settings the run's RV table was measured with (:func:`_rv_settings`)."""
+    return layout.rv_table.with_name(f"{layout.rv_table.stem}_settings.json")
+
+
+def _rv_settings(
+    config: FitConfig,
+    template: tuple[Any, Any],
+    windows: Sequence[Window],
+    vsini_kms: float | None,
+    *,
+    model: bool,
+) -> dict[str, Any]:
+    """What a measured RV table depends on besides the spectra: the template, the masked
+    windows, the CCF grid and the orders (as read back from the JSON record)."""
+    rv = config.rv
+    tw, tf = (np.asarray(a, dtype=np.float64) for a in template)
+    lo, hi = rvmod.ccf_grid_limits(rv, vsini_kms)
+    settings = {
+        "telluric_mask": "model" if model else "bands",
+        "windows_sha256": hashlib.sha256(
+            np.round(np.asarray(windows, float), 6).tobytes()
+        ).hexdigest(),
+        "template_sha256": hashlib.sha256(tw.tobytes() + tf.tobytes()).hexdigest(),
+        "ccf_grid_kms": [lo, hi, float(rv.ccf_dv)],
+        "orders": None if rv.orders is None else [int(o) for o in rv.orders],
+    }
+    loaded: dict[str, Any] = json.loads(json.dumps(settings))
+    return loaded
+
+
+def _stale_rv_table(record: Path, settings: Mapping[str, Any], config: FitConfig) -> str | None:
+    """Why the existing RV table cannot be reused, or ``None``."""
+    try:
+        recorded = json.loads(record.read_text())
+    except (OSError, ValueError):
+        # tables of earlier versions: band windows and the fixed grid
+        legacy = settings["telluric_mask"] == "bands" and settings["ccf_grid_kms"][:2] == [
+            float(config.rv.ccf_v_lo),
+            float(config.rv.ccf_v_hi),
+        ]
+        return None if legacy else f"there is no record of how it was measured ({record.name})"
+    changed = sorted(k for k in set(recorded) | set(settings) if recorded.get(k) != settings.get(k))
+    if changed:
+        return f"it was measured with other settings ({', '.join(changed)})"
+    return None
+
+
+def _linemask_settings(
+    config: FitConfig, products: StellarProducts, transmission: LineTransmission | None = None
+) -> dict[str, Any]:
     """What the per-exposure stellar-line masks depend on, besides the RVs."""
     lm = config.masks.stellar_linemask
     if lm.user_file is not None:
@@ -288,7 +350,19 @@ def _linemask_settings(config: FitConfig, products: StellarProducts) -> dict[str
             "line_elements": list(sm.line_elements),
             "line_min_depth": sm.line_min_depth,
             "ispec_linelist": sm.ispec.linelist,
+            "blend": lm.blend,
         }
+        if lm.blend != "off":
+            if transmission is None:
+                raise DataError(
+                    f"masks.stellar_linemask.blend = {lm.blend!r} needs the run's telluric "
+                    "model: run the Pipeline, or set blend = 'off'"
+                )
+            settings |= {
+                "blend_ratio": lm.blend_ratio,
+                "telluric_depth": lm.telluric_depth,
+                "telluric_model_sha256": transmission.sha256(),
+            }
     loaded: dict[str, Any] = json.loads(json.dumps(settings))  # as read back from the record
     return loaded
 
@@ -338,17 +412,20 @@ def ensure_linemasks(
     settings: Settings,
     layout: RunLayout,
     products: StellarProducts,
+    telluric_transmission: LineTransmission | None = None,
 ) -> str:
     """Per-exposure stellar-line masks (``mask`` treatment): ``user_file``, ``reused``
     or ``generated``.
 
     The windows come from ``stellar_linemask.user_file``, or from the spectrum chosen
-    by ``stellar_linemask.from_spectrum``. The settings the masks were built with are
-    recorded beside them (``RunLayout.linemask_settings``); masks are reused only if
-    those settings and the RVs they were placed by are unchanged.
+    by ``stellar_linemask.from_spectrum``; lines measured on the master are judged
+    against *telluric_transmission* (the run's model, needed unless ``blend =
+    "off"``). The settings the masks were built with are recorded beside them
+    (``RunLayout.linemask_settings``); masks are reused only if those settings and
+    the RVs they were placed by are unchanged.
     """
     lm = config.masks.stellar_linemask
-    wanted = _linemask_settings(config, products)
+    wanted = _linemask_settings(config, products, telluric_transmission)
     rows = rvmod.read_rv_table(products.rv_table)
     if lm.user_file is not None:
         # user rest-frame windows are cheap to place: rewritten every run
@@ -389,7 +466,9 @@ def ensure_linemasks(
     else:
         reuse_rest = layout.linemask_rest.exists() and _recorded_linemask_settings(layout) == wanted
         if not reuse_rest:
-            _measure_master_lines(observation, config, settings, layout, rows)
+            _measure_master_lines(
+                observation, config, settings, layout, rows, telluric_transmission
+            )
         write_exposure_linemasks(
             rows,
             read_windows(layout.linemask_rest),
@@ -400,12 +479,37 @@ def ensure_linemasks(
     return "generated"
 
 
+def _master_telluric(
+    transmission: LineTransmission, rows: Sequence[Mapping[str, str]]
+) -> Callable[[Array], Array]:
+    """The model transmission as it appears in the rest-frame master: the mean over the
+    RV table's exposures of the model at ``lambda_rest * (1 + rv / c)`` and each
+    exposure's airmass (the model's own where the table has none)."""
+
+    def airmass(row: Mapping[str, str]) -> float:
+        try:
+            value = float(row.get("airmass") or "nan")
+        except ValueError:
+            value = float("nan")
+        return value if np.isfinite(value) and value >= 1.0 else transmission.airmass
+
+    shifts = [(float(r["rv_kms"]), airmass(r)) for r in rows]
+
+    def at(wave_rest: Array) -> Array:
+        wave = np.asarray(wave_rest, float)
+        models = [transmission.at(wave * (1.0 + rv / C_KMS), airmass=am) for rv, am in shifts]
+        return np.asarray(np.mean(models, axis=0), float)
+
+    return at
+
+
 def _measure_master_lines(
     observation: Observation,
     config: FitConfig,
     settings: Settings,
     layout: RunLayout,
     rows: list[dict[str, str]],
+    transmission: LineTransmission | None,
 ) -> None:
     """Measure the stellar lines on the master spectrum and write the rest-frame windows
     and the line catalogue.
@@ -413,6 +517,7 @@ def _measure_master_lines(
     The master is built only if its file is missing; an existing master is reused
     as it is, even if the RVs or the ``master_spectrum`` settings have changed.
     """
+    lm = config.masks.stellar_linemask
     from gtellcorr.preprocessing.master_spectrum import (
         build_master_spectrum,
         load_master_spectrum,
@@ -439,6 +544,10 @@ def _measure_master_lines(
         min_depth=sm.line_min_depth,
         ispec_dir=settings.ispec_dir,
         linelist=sm.ispec.linelist,
+        telluric=None if transmission is None else _master_telluric(transmission, rows),
+        blend=lm.blend,
+        blend_ratio=lm.blend_ratio,
+        telluric_depth=lm.telluric_depth,
     )
     write_stellar_lines(
         catalogue,
@@ -460,15 +569,23 @@ def prepare_stellar(
     *,
     rv_seed: int | None = 0,
     workers: int = 12,
+    rv_telluric_windows: Sequence[Window] | None = None,
+    telluric_transmission: LineTransmission | None = None,
 ) -> StellarProducts:
     """Template and RV table (both treatments), plus line masks for ``mask``.
 
     *rv_seed* seeds the RV measurement; *workers* is the number of processes for a
-    template synthesis. ``strong_windows`` is left empty for the pipeline to fill.
+    template synthesis; *rv_telluric_windows* are the telluric model windows of the
+    RV measurement (:func:`ensure_rv_table`); *telluric_transmission* is the run's
+    telluric model the measured stellar lines are judged against
+    (:func:`ensure_linemasks`). ``strong_windows`` is left empty for the pipeline to
+    fill.
     """
     path, template_status = ensure_template(observation, config, settings, layout, workers=workers)
     template = load_stellar_template(path, observation, config)
-    rv_path, rv_status = ensure_rv_table(observation, config, layout, template, seed=rv_seed)
+    rv_path, rv_status = ensure_rv_table(
+        observation, config, layout, template, seed=rv_seed, telluric_windows=rv_telluric_windows
+    )
     rows = rvmod.read_rv_table(rv_path)
     products = StellarProducts(
         layout=layout,
@@ -483,6 +600,6 @@ def prepare_stellar(
     )
     if config.stellar == "mask":
         products.status["linemask"] = ensure_linemasks(
-            observation, config, settings, layout, products
+            observation, config, settings, layout, products, telluric_transmission
         )
     return products

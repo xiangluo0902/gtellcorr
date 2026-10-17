@@ -100,8 +100,9 @@ def test_missing_epoch_is_an_error(make_neid: Callable[..., Path], tmp_path: Pat
 
 def test_science_filter_and_channels(make_pepsi: Callable[..., Path], tmp_path: Path) -> None:
     make_pepsi("pepsir.20250101.001.dxt.nor")
-    make_pepsi("pepsir.20250101.002.dxt.nor", IMAGETYP="bias")
-    make_pepsi("pepsir.20250101.003.dxt.nor", IMAGETYP=None)  # empty card passes
+    make_pepsi("pepsir.20250101.002.dxt.nor", IMAGETYP="bias", **{"TIME-OBS": "03:20:00.000"})
+    # empty card passes
+    make_pepsi("pepsir.20250101.003.dxt.nor", IMAGETYP=None, **{"TIME-OBS": "03:40:00.000"})
     make_pepsi("pepsib.20250101.001.dxt.nor")
     obs = Observation.from_directory(tmp_path)
     assert obs.instrument.name == "LBT/PEPSI" and obs.channel == "red"
@@ -112,6 +113,113 @@ def test_science_filter_and_channels(make_pepsi: Callable[..., Path], tmp_path: 
     assert obs.exposures[0].resolution == 130000.0
     blue = Observation.from_directory(tmp_path, instrument="PEPSI", channel="blue")
     assert [e.name for e in blue.exposures] == ["pepsib.20250101.001.dxt.nor"]
+
+
+def test_espresso_pipeline_and_archive_names(
+    make_espresso: Callable[..., Path], tmp_path: Path
+) -> None:
+    s2d_a = {"HIERARCH ESO PRO CATG": "S2D_A"}
+    make_espresso("r.ESPRE.2022-07-02T23:50:42.400_S2D_A.fits", **s2d_a)
+    make_espresso(
+        "ES_S2DA_2361220_2022-07-03T00:40:54.453_HR_2x1_U3.fits",
+        **{"DATE-OBS": "2022-07-03T00:40:54.453", **s2d_a},
+    )
+    make_espresso(  # the archive name, but not the S2D product of fibre A
+        "ES_S2DA_2361220_2022-07-03T01:00:00.000_HR_2x1_U3.fits",
+        **{"DATE-OBS": "2022-07-03T01:00:00.000", "HIERARCH ESO PRO CATG": "S2D_BLAZE_A"},
+    )
+    obs = Observation.from_directory(tmp_path)
+    assert obs.instrument.name == "VLT/ESPRESSO"
+    assert [e.name for e in obs.exposures] == [
+        "ES_S2DA_2361220_2022-07-03T00:40:54.453_HR_2x1_U3.fits",
+        "r.ESPRE.2022-07-02T23:50:42.400_S2D_A.fits",
+    ]
+
+
+def test_espresso_cards_of_any_unit_telescope(
+    make_espresso: Callable[..., Path], tmp_path: Path
+) -> None:
+    ut1 = ("GEOLAT", "GEOLON", "GEOELEV", "AIRM START")
+    make_espresso(  # a UT3 file carries only the ESO TEL3 cards
+        **{f"HIERARCH ESO TEL1 {k}": None for k in ut1},
+        **{
+            "HIERARCH ESO TEL3 GEOLAT": -24.6268,
+            "HIERARCH ESO TEL3 GEOLON": -70.4045,
+            "HIERARCH ESO TEL3 GEOELEV": 2648.0,
+            "HIERARCH ESO TEL3 AIRM START": 1.621,
+        },
+    )
+    e = Observation.from_directory(tmp_path, instrument="ESPRESSO").exposures[0]
+    assert (e.airmass, e.airmass_source) == (1.621, "fits_header")
+    assert e.site.coords == (-24.6268, -70.4045, 2648.0)
+    assert set(e.site_sources.values()) == {"header"}
+
+
+def test_same_exposure_twice_is_an_error(
+    make_espresso: Callable[..., Path], tmp_path: Path
+) -> None:
+    make_espresso("r.ESPRE.2022-07-02T23:50:42.400_S2D_A.fits")
+    make_espresso("ES_S2DA_2361220_2022-07-02T23:50:42.400_HR_2x1_U3.fits")
+    with pytest.raises(DataError, match=r"same exposure epoch: ES_S2DA_.* and r\.ESPRE"):
+        Observation.from_directory(tmp_path, instrument="ESPRESSO")
+    obs = Observation.from_directory(tmp_path, instrument="ESPRESSO", exclude=["ES_S2DA"])
+    assert len(obs) == 1
+
+
+def _own_pepsi(path: Path) -> Path:
+    """The built-in PEPSI definition renamed, with R = 126000 for the 200 um fibre."""
+    from gtellcorr.config.toml_format import dumps_group
+    from gtellcorr.data.observation import instruments
+
+    text = dumps_group("instrument", instruments.get("PEPSI"))
+    for old, new in (
+        ('name = "LBT/PEPSI"', 'name = "LBT/MYPEPSI"'),
+        ('aliases = ["PEPSI"]', "aliases = []"),
+        ("200 = 130000.0", "200 = 126000.0"),
+    ):
+        assert text.count(old) == 1
+        text = text.replace(old, new)
+    path.write_text(text)
+    return path
+
+
+def test_instrument_file_in_the_data_table(
+    make_pepsi: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gtellcorr.config.run_config import RunConfig
+    from gtellcorr.errors import ConfigError
+
+    spectra = tmp_path / "spectra"
+    spectra.mkdir()
+    make_pepsi(str(spectra / "pepsir.20250101.001.dxt.nor"))
+    _own_pepsi(tmp_path / "mine.toml")
+    monkeypatch.chdir(tmp_path)  # relative paths are taken from the current directory
+    run = tmp_path / "run.toml"
+    run.write_text(
+        'schema_version = 5\n[data]\ndirectory = "spectra"\ninstrument_file = "mine.toml"\n'
+    )
+    config = RunConfig.load(run)
+    obs = Observation.from_config(config.data)
+    assert obs.instrument.name == "LBT/MYPEPSI"
+    assert obs.exposures[0].resolution == 126000.0
+    config.save(tmp_path / "again.toml")
+    assert RunConfig.load(tmp_path / "again.toml").data.instrument_file == "mine.toml"
+    with pytest.raises(ConfigError, match="give instrument or instrument_file, not both"):
+        DataConfig(directory="spectra", instrument="PEPSI", instrument_file="mine.toml")
+
+
+def test_inspect_with_an_instrument_file(
+    make_pepsi: Callable[..., Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from gtellcorr.cli import main
+
+    make_pepsi()
+    mine = _own_pepsi(tmp_path / "mine.toml")
+    assert main(["inspect", str(tmp_path), "--instrument-file", str(mine)]) == 0
+    out = capsys.readouterr().out
+    assert "instrument: LBT/MYPEPSI" in out and "126000" in out
+    with pytest.raises(SystemExit):
+        main(["inspect", str(tmp_path), "--instrument", "PEPSI", "--instrument-file", str(mine)])
 
 
 def test_read_order_by_index_name_or_exposure(

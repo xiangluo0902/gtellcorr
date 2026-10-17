@@ -8,6 +8,9 @@ exposure. The chunks and the product (transmission ``.npz`` and mask ``.txt``) a
 cached under ``<run>/mask_spectral_line/data``. Each carries a key (SHA-256) of
 everything it depends on (optical-depth cache, columns, LSF, grid, mask settings) and
 SHA-256 sums of its arrays; a cached file is reused only if all of them match.
+
+The telluric windows of the RV measurement (:func:`ensure_rv_telluric_windows`) come
+from the same model, with the LBLRTM continua divided out and a threshold near 1.
 """
 
 from __future__ import annotations
@@ -25,7 +28,12 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from numpy.typing import NDArray
 
-from gtellcorr.preprocessing.windows import Window, boolean_mask_windows, read_windows
+from gtellcorr.preprocessing.windows import (
+    Window,
+    boolean_mask_windows,
+    pad_window,
+    read_windows,
+)
 from gtellcorr.telluric.molecules import ENGINE_MOLECULES
 
 if TYPE_CHECKING:
@@ -35,11 +43,18 @@ if TYPE_CHECKING:
     from gtellcorr.telluric.model import TelluricModel
 
 __all__ = [
+    "LineTransmission",
     "StrongMaskResult",
     "component_molecules",
+    "ensure_rv_telluric_windows",
     "ensure_strong_telluric_mask",
     "generate_strong_telluric_mask",
+    "line_transmission",
+    "line_transmission_windows",
+    "run_line_transmission",
+    "rv_telluric_windows",
     "strong_telluric_windows",
+    "windows_of_line_transmission",
 ]
 
 Array = NDArray[np.float64]
@@ -159,6 +174,138 @@ def strong_telluric_windows(
     return boolean_mask_windows(
         wave, mask, pad_nm=pad_nm, merge_gap_nm=merge_gap_nm, min_width_nm=min_width_nm
     )
+
+
+def line_transmission_windows(
+    wave_nm: Any,
+    line_transmission: Any,
+    *,
+    threshold: float,
+    airmass_ratio: float = 1.0,
+    pad_kms: float = 0.0,
+) -> list[Window]:
+    """Windows where the line transmission, scaled to another airmass, is below
+    ``threshold``, each padded by *pad_kms*.
+
+    The line optical depth is taken as proportional to the airmass:
+    ``T ** airmass_ratio`` (a broadened transmission, so only approximately; exact for
+    the weak lines that set a threshold near 1).
+    """
+    wave = np.asarray(wave_nm, float)
+    trans = np.asarray(line_transmission, float)
+    if wave.shape != trans.shape:
+        raise ValueError("wave_nm and line_transmission must have the same shape")
+    if not float(airmass_ratio) > 0.0:
+        raise ValueError(f"airmass_ratio must be positive, got {airmass_ratio!r}")
+    scaled = np.clip(trans, 1e-300, None) ** float(airmass_ratio)
+    mask = np.isfinite(wave) & np.isfinite(trans) & (scaled < float(threshold))
+    windows = boolean_mask_windows(wave, mask)
+    return [pad_window(lo, hi, pad_kms) for lo, hi in windows]
+
+
+@dataclass(frozen=True, eq=False)
+class LineTransmission:
+    """Model line transmission of a run (air, topocentric wavelengths).
+
+    LBLRTM continua divided out, every engine molecule at its reference column,
+    Gaussian LSF at the run's resolving power, at the geometry's ``airmass``; one
+    ``(wave_nm, transmission)`` pair per wavelength chunk.
+    """
+
+    chunks: tuple[tuple[Array, Array], ...]
+    airmass: float
+
+    def at(self, wave_nm: Any, airmass: float | None = None) -> Array:
+        """Transmission at *wave_nm* (1 outside the chunks), scaled to *airmass* as
+        :func:`line_transmission_windows` does (``T ** (airmass / self.airmass)``)."""
+        wave = np.asarray(wave_nm, float)
+        out = np.ones(wave.shape)
+        for w, t in self.chunks:
+            inside = (wave >= w[0]) & (wave <= w[-1])
+            out[inside] = np.interp(wave[inside], w, t)
+        if airmass is not None:
+            out = np.clip(out, 1e-300, None) ** (float(airmass) / self.airmass)
+        return out
+
+    def sha256(self) -> str:
+        """SHA-256 of the airmass and the arrays (records what a product was built with)."""
+        digest = sha256(np.float64(self.airmass).tobytes())
+        for w, t in self.chunks:
+            digest.update(np.ascontiguousarray(w, np.float64).tobytes())
+            digest.update(np.ascontiguousarray(t, np.float64).tobytes())
+        return digest.hexdigest()
+
+
+def line_transmission(
+    model: TelluricModel,
+    profile: Mapping[str, Any],
+    geometry: Geometry,
+    *,
+    wavelength_range_nm: tuple[float, float],
+    resolution: float,
+    chunk_nm: float = 50.0,
+) -> LineTransmission:
+    """The line transmission (LBLRTM continua divided out, every engine molecule at
+    its reference column, Gaussian LSF of *resolution*) at the geometry's airmass.
+
+    The optical-depth caches are those of the strong-telluric mask (same chunks,
+    molecules and geometry), so no LBLRTM run is added when that mask exists.
+    """
+    from gtellcorr.fitting.lsf import apply_lsf
+    from gtellcorr.telluric.order_cache import continuum_transmittance, transmittance
+
+    chunks = []
+    lo_nm, hi_nm = (float(w) for w in wavelength_range_nm)
+    for lo, hi in _chunk_ranges(lo_nm, hi_nm, chunk_nm):
+        cache = model.build_order_cache(
+            dict(profile), (lo, hi), geometry=geometry, fit_molecules=ENGINE_MOLECULES
+        )
+        scales = dict.fromkeys(ENGINE_MOLECULES, 1.0)
+        wave, total = transmittance(cache, scales)
+        continuum = continuum_transmittance(cache, scales)
+        line = total if continuum is None else total / np.clip(continuum, 1e-300, None)
+        line = apply_lsf(wave, line, float(resolution), kind="gauss", shape=2.0)
+        keep = np.isfinite(wave) & np.isfinite(line) & (wave >= lo) & (wave <= hi)
+        chunks.append((np.asarray(wave[keep], float), np.asarray(line[keep], float)))
+    return LineTransmission(chunks=tuple(chunks), airmass=float(geometry.airmass))
+
+
+def rv_telluric_windows(
+    model: TelluricModel,
+    profile: Mapping[str, Any],
+    geometry: Geometry,
+    *,
+    wavelength_range_nm: tuple[float, float],
+    resolution: float,
+    threshold: float,
+    airmass_ratio: float = 1.0,
+    pad_kms: float = 0.0,
+    chunk_nm: float = 50.0,
+) -> list[Window]:
+    """Telluric windows of the RV measurement: where the :func:`line_transmission`
+    at *airmass_ratio* times the geometry's airmass is below *threshold*
+    (:func:`line_transmission_windows`)."""
+    transmission = line_transmission(
+        model, profile, geometry, wavelength_range_nm=wavelength_range_nm,
+        resolution=resolution, chunk_nm=chunk_nm,
+    )  # fmt: skip
+    return windows_of_line_transmission(
+        transmission, threshold=threshold, airmass_ratio=airmass_ratio, pad_kms=pad_kms
+    )
+
+
+def windows_of_line_transmission(
+    transmission: LineTransmission, *, threshold: float, airmass_ratio: float, pad_kms: float
+) -> list[Window]:
+    """:func:`line_transmission_windows` of each chunk of *transmission*."""
+    windows: list[Window] = []
+    for wave, line in transmission.chunks:
+        windows.extend(
+            line_transmission_windows(
+                wave, line, threshold=threshold, airmass_ratio=airmass_ratio, pad_kms=pad_kms
+            )
+        )
+    return windows
 
 
 def _token(value: float, fmt: str) -> str:
@@ -731,6 +878,80 @@ def generate_strong_telluric_mask(
     )
 
 
+def run_line_transmission(
+    model: TelluricModel,
+    exposures: Sequence[Any],
+    *,
+    instrument: InstrumentSpec,
+    fit: Any,
+    settings: Any,
+    celestrak: Any = None,
+) -> LineTransmission:
+    """The run's :func:`line_transmission`: profile and airmass of ``exposures[0]``, the
+    start R of the fit (:func:`~gtellcorr.data.observation.instrument.start_resolution`),
+    over the instrument's wavelength range, in the strong-telluric mask's chunks."""
+    from gtellcorr.data.atmosphere import full_profile_for_exposure
+    from gtellcorr.data.observation.instrument import start_resolution
+    from gtellcorr.telluric.geometry import Geometry
+
+    if not exposures:
+        raise ValueError("no exposures available for the run's telluric model")
+    wr = instrument.spectral.wavelength_range_nm
+    if wr is None:
+        raise ValueError(f"{instrument.name}: spectral.wavelength_range_nm is not configured")
+    if model.config.continuum_mode == "scaled":
+        model = model.with_continuum_mode("full")  # the strong mask's caches
+    first = exposures[0]
+    full = full_profile_for_exposure(
+        first, instrument, config=fit.atmosphere, settings=settings, celestrak=celestrak
+    )
+    profile = model.lblrtm_profile({k: full[k] for k in ("z_km", "T_K", "P_hPa", "H2O_ppmv")})
+    site = first.site
+    geometry = Geometry(
+        observatory=(site.lat_deg, site.lon_deg, site.alt_m / 1000.0),
+        airmass=float(first.airmass or 1.5),
+    )
+    return line_transmission(
+        model,
+        profile,
+        geometry,
+        wavelength_range_nm=(min(map(float, wr)), max(map(float, wr))),
+        resolution=start_resolution(exposures, instrument, fit.lsf.resolution),
+        chunk_nm=float(fit.masks.strong_telluric.chunk_nm),
+    )
+
+
+def ensure_rv_telluric_windows(
+    model: TelluricModel,
+    exposures: Sequence[Any],
+    *,
+    instrument: InstrumentSpec,
+    fit: Any,
+    settings: Any,
+    celestrak: Any = None,
+    transmission: LineTransmission | None = None,
+) -> list[Window]:
+    """Telluric windows of the run's RV measurement (``rv.telluric_mask = "model"``).
+
+    The model is that of the strong-telluric mask (:func:`run_line_transmission`, or
+    *transmission* if given), with the line optical depth scaled to the largest
+    airmass of *exposures* (:func:`line_transmission_windows`).
+    """
+    if transmission is None:
+        transmission = run_line_transmission(
+            model, exposures, instrument=instrument, fit=fit, settings=settings,
+            celestrak=celestrak,
+        )  # fmt: skip
+    largest = max(float(e.airmass or 1.5) for e in exposures)
+    rv = fit.rv
+    return windows_of_line_transmission(
+        transmission,
+        threshold=float(rv.telluric_threshold),
+        airmass_ratio=largest / transmission.airmass,
+        pad_kms=float(rv.telluric_pad_kms),
+    )
+
+
 def ensure_strong_telluric_mask(
     model: TelluricModel,
     exposures: Sequence[Any],
@@ -745,13 +966,13 @@ def ensure_strong_telluric_mask(
 ) -> StrongMaskResult | None:
     """The run's strong-telluric mask from its first exposure (``None`` if disabled).
 
-    ``fit`` is the :class:`~gtellcorr.config.FitConfig`; the atmospheric profile,
-    airmass and resolving power of ``exposures[0]`` define the transmission model.
+    ``fit`` is the :class:`~gtellcorr.config.FitConfig`; the atmospheric profile and
+    airmass of ``exposures[0]`` and the start R of the fit
+    (:func:`~gtellcorr.data.observation.instrument.start_resolution`) define the
+    transmission model.
     """
-    from astropy.io import fits
-
     from gtellcorr.data.atmosphere import full_profile_for_exposure
-    from gtellcorr.data.observation.instrument import read_resolution
+    from gtellcorr.data.observation.instrument import start_resolution
     from gtellcorr.telluric.geometry import Geometry
 
     config = fit.masks.strong_telluric
@@ -759,6 +980,11 @@ def ensure_strong_telluric_mask(
         return None
     if not exposures:
         raise ValueError("no exposures available for the strong telluric mask")
+    if model.config.continuum_mode == "scaled":
+        # The mask uses the transmission at the reference columns, where a scaled
+        # cache equals a full one; with all twelve molecules fitted a full cache needs
+        # 15 LBLRTM runs instead of 63, and it is shared with full-mode runs.
+        model = model.with_continuum_mode("full")
     first = exposures[0]
     full = full_profile_for_exposure(
         first, instrument, config=fit.atmosphere, settings=settings, celestrak=celestrak
@@ -769,7 +995,7 @@ def ensure_strong_telluric_mask(
         observatory=(site.lat_deg, site.lon_deg, site.alt_m / 1000.0),
         airmass=float(first.airmass or 1.5),
     )
-    resolution = float(read_resolution(fits.getheader(first.path), instrument))
+    resolution = start_resolution(exposures, instrument, fit.lsf.resolution)
     return generate_strong_telluric_mask(
         model,
         profile,

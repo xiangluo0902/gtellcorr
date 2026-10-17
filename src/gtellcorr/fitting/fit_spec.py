@@ -90,6 +90,16 @@ class FitSpec:
     """Bounds of each Chebyshev coefficient [km/s]."""
     wave_shift: tuple[float, ...] | None = None
     """Fixed correction coefficients [km/s] when not fitted (``None`` = no correction)."""
+    fit_stellar_shift: bool = False
+    """Fit a velocity of the stellar template beyond its placement RV
+    (:mod:`gtellcorr.fitting.stellar_shift`; needs a shiftable stellar model)."""
+    stellar_shift_bounds: tuple[float, float] = (-2.0, 2.0)
+    """Bounds of the stellar shift [km/s]."""
+    stellar_shift: float | None = None
+    """Fixed stellar shift [km/s] when not fitted (``None`` = the template as placed)."""
+    continuum_output_niter: int = 5
+    """Clipping iterations of the continuum stored with the result, fitted after the
+    fit with the fitted model held fixed (:attr:`Continuum.output_niter`)."""
 
     def lsf_grid(self) -> tuple[float, float]:
         """``(grid_resolution, support_resolution)`` of the fixed-grid convolution.
@@ -234,7 +244,9 @@ def build_fit_spec(
     :func:`~gtellcorr.data.observation.instrument.read_resolution`), else the
     instrument default. R bounds are ``lsf.resolution_bounds`` if given, else
     ``R0 * (1 -/+ tol)`` with ``tol`` = ``lsf.resolution_tol``, else the instrument's
-    ``resolution.fit_tol``, else 0.08.
+    ``resolution.fit_tol``, else 0.08. The template velocity is fitted with
+    ``stellar = "template"`` and ``stellar_model.fit_shift`` (the caller turns it off
+    when no stellar model is used).
     """
     lsf = config.lsf
     mols = select_fit_molecules(wave_range_nm, config=config, instrument=instrument, order=order)
@@ -263,6 +275,7 @@ def build_fit_spec(
         continuum_order=int(config.continuum.order),
         continuum_sigma_clip=tuple(config.continuum.sigma_clip),  # type: ignore[arg-type]
         continuum_niter=int(config.continuum.niter),
+        continuum_output_niter=int(config.continuum.output_niter),
         order=order,
         fit_wave_shift=bool(config.wavelength.fit),
         wave_shift_degree=int(config.wavelength.order),
@@ -270,6 +283,11 @@ def build_fit_spec(
         wave_shift_bounds=(
             float(config.wavelength.bounds_kms[0]),
             float(config.wavelength.bounds_kms[1]),
+        ),
+        fit_stellar_shift=config.stellar == "template" and bool(config.stellar_model.fit_shift),
+        stellar_shift_bounds=(
+            float(config.stellar_model.shift_bounds_kms[0]),
+            float(config.stellar_model.shift_bounds_kms[1]),
         ),
     )
 

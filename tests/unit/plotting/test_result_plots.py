@@ -61,6 +61,18 @@ def test_order_fit_mask_treatment_has_no_stellar_component(tmp_path: Path) -> No
     assert "stellar  C·M" not in labels
 
 
+def test_order_fit_flux_ylim(tmp_path: Path) -> None:
+    path = _write(tmp_path / "e_joint_corrected_all_orders.fits", _result())
+    fig, ax = plot_order_fit(str(path), order=0, out=False)
+    assert ax[0].get_ylim() == pytest.approx((0.0, 1.25))
+    plt.close(fig)
+    fig, ax = plot_order_fit(str(path), order=0, out=False, flux_ylim=(0.2, 2.0))
+    assert ax[0].get_ylim() == pytest.approx((0.2, 2.0))
+    plt.close(fig)
+    with pytest.raises(ValueError, match="flux_ylim"):
+        plot_order_fit(str(path), order=0, out=False, flux_ylim=(1.0, 0.5))
+
+
 def test_param_timeseries_reads_every_numeric_column(tmp_path: Path) -> None:
     rows = []
     for i in range(3):

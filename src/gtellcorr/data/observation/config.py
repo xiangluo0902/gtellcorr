@@ -39,6 +39,10 @@ class DataConfig(ConfigGroup):
     instrument: str | None = None
     """Registered instrument name, e.g. ``"WIYN/NEID"``; leave out to identify the
     instrument from the file headers."""
+    instrument_file: str | None = None
+    """TOML file of your own instrument definition, used instead of a registered
+    ``instrument`` (a relative path is taken from the current directory, as
+    ``directory``)."""
     channel: str | None = None
     """Channel (fibre / arm) to process; leave out for the instrument's default channel."""
     include: tuple[str, ...] | None = None
@@ -59,7 +63,8 @@ class DataConfig(ConfigGroup):
     """Transit ephemeris; in-transit exposures are left out of the stellar master."""
 
     def validate(self) -> None:
-        """Known instrument, channel and sites; include or include_file, not both."""
+        """Known instrument, channel and sites; include or include_file, and instrument or
+        instrument_file, not both (the instrument file is read when the data are)."""
         # Registries are imported here: they depend on this module's SiteCoords.
         from gtellcorr.data.observation.instrument import instruments
         from gtellcorr.data.observation.site import sites
@@ -69,6 +74,8 @@ class DataConfig(ConfigGroup):
             self.fail("directory", "must not be empty")
         if self.include is not None and self.include_file is not None:
             self.fail("include", "give include or include_file, not both")
+        if self.instrument is not None and self.instrument_file is not None:
+            self.fail("instrument_file", "give instrument or instrument_file, not both")
         if self.instrument is not None:
             try:
                 spec = instruments.get(self.instrument)

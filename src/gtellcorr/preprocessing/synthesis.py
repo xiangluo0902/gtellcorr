@@ -197,6 +197,8 @@ def _pysme_synth(syn: Synthesis, lo: float, hi: float, linelist: str | None) -> 
     from pysme.sme import SME_Structure
     from pysme.synthesize import synthesize_spectrum
 
+    # pySME logs every file it reads at INFO to stdout, set on import; keep its warnings
+    logging.getLogger("pysme").setLevel(logging.WARNING)
     st, s = syn.star, syn.pysme
     path = linelist or syn.linelist
     if path is None:

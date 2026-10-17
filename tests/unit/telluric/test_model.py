@@ -58,6 +58,38 @@ def test_ported_order_cache_has_no_hidden_defaults() -> None:
         pass
 
 
+def test_forward_context_requires_a_known_continuum_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gtellcorr.telluric.order_cache as oc
+
+    class _Resources:
+        def require_fully_validated(self) -> None:
+            pass
+
+    monkeypatch.setattr(oc, "ResolvedLblrtmResourceFiles", _Resources)
+    common = {
+        "resources": _Resources(),
+        "cache_directory": "/tmp",
+        "timeout_s": 10.0,
+        "wave_margin_nm": 1.0,
+        "lblrtm_verbose": False,
+        "vacuum_air_formula": "espresso",
+    }
+    with (
+        pytest.raises(ValueError, match="continuum_mode must be given"),
+        use_lblrtm_forward_context(**common),
+    ):
+        pass
+    with (
+        pytest.raises(ValueError, match="continuum_mode must be 'full', 'scaled' or 'none'"),
+        use_lblrtm_forward_context(**common, continuum_mode="partial"),
+    ):
+        pass
+    with use_lblrtm_forward_context(**common, continuum_mode="none"):
+        assert oc._require_lblrtm_forward_context().continuum_mode == "none"
+    with use_lblrtm_forward_context(**common, continuum_mode="scaled"):
+        assert oc._require_lblrtm_forward_context().continuum_mode == "scaled"
+
+
 class _Model:
     """Stands in for TelluricModel; argument checks happen before it is used."""
 
@@ -194,3 +226,149 @@ def test_gtellcorr_errors_pass_through_the_order_cache(
         model.build_order_cache(
             {}, (650.0, 680.0), geometry=Geometry((0.0, 0.0, 0.0), 1.0), fit_molecules=["xx"]
         )
+
+
+def test_with_continuum_mode_copies_everything_but_the_mode(tmp_path: Path) -> None:
+    from gtellcorr.telluric.config import TelluricConfig
+
+    class Verified:
+        bundle = tmp_path / "bundle"
+        resources = None
+
+    reference = {"reference_provenance": {"source_sha256": "0" * 64}}
+    model = TelluricModel(
+        Verified(),  # type: ignore[arg-type]
+        reference,
+        tau_cache=tmp_path / "tau",
+        config=TelluricConfig(wave_margin_nm=5.0, continuum_mode="scaled"),
+        timeout_s=42.0,
+        verbose=True,
+        vacuum_air_formula="ciddor1996",
+    )
+    full = model.with_continuum_mode("full")
+    assert full is not model and model.config.continuum_mode == "scaled"
+    assert full.config == TelluricConfig(wave_margin_nm=5.0, continuum_mode="full")
+    for name in ("resources", "reference_atmosphere", "tau_cache", "timeout_s", "verbose"):
+        assert getattr(full, name) == getattr(model, name), name
+    assert full.vacuum_air_formula == "ciddor1996"
+
+
+@pytest.mark.parametrize(
+    ("mode", "mask_mode"), [("scaled", "full"), ("full", "full"), ("none", "none")]
+)
+def test_strong_mask_uses_a_full_cache_for_scaled_runs(
+    mode: str, mask_mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from astropy.io import fits
+
+    import gtellcorr.data.atmosphere as atmosphere
+    import gtellcorr.data.observation.instrument as instrument
+    from gtellcorr.config.fit_config import FitConfig
+    from gtellcorr.preprocessing import telluric_mask
+    from gtellcorr.telluric.config import TelluricConfig
+
+    seen: dict[str, Any] = {}
+
+    def generate(model: TelluricModel, *args: Any, **kwargs: Any) -> str:
+        seen["mode"] = model.config.continuum_mode
+        return "mask"
+
+    profile = dict.fromkeys(("z_km", "T_K", "P_hPa", "H2O_ppmv"), np.zeros(3))
+    monkeypatch.setattr(atmosphere, "full_profile_for_exposure", lambda *a, **k: profile)
+    monkeypatch.setattr(instrument, "read_resolution", lambda *a, **k: 130000.0)
+    monkeypatch.setattr(fits, "getheader", lambda *a, **k: {})
+    monkeypatch.setattr(TelluricModel, "lblrtm_profile", lambda self, profile: {})
+    monkeypatch.setattr(telluric_mask, "generate_strong_telluric_mask", generate)
+    exposure = Exposure(
+        path=tmp_path / "x.fits",
+        time_utc=datetime(2025, 6, 19, tzinfo=UTC),
+        site=Site(lat_deg=32.7, lon_deg=-109.9, alt_m=3221.0),
+        site_sources={},
+        airmass=1.2,
+        airmass_source="fits_header",
+        weather=None,
+        resolution=130000.0,
+        object="x",
+    )
+    model = TelluricModel(
+        object(),  # type: ignore[arg-type]
+        {},
+        tau_cache=tmp_path,
+        config=TelluricConfig(continuum_mode=mode),  # type: ignore[arg-type]
+    )
+    result = telluric_mask.ensure_strong_telluric_mask(
+        model,
+        [exposure],
+        instrument=None,  # type: ignore[arg-type]
+        fit=FitConfig(),
+        settings=None,
+        out_dir=tmp_path,
+        stem="x",
+    )
+    assert result == "mask" and seen["mode"] == mask_mode
+    assert model.config.continuum_mode == mode
+
+
+@pytest.mark.parametrize(("lsf_resolution", "expected"), [(None, 50000.0), (80000.0, 80000.0)])
+def test_run_wide_telluric_models_use_the_start_resolution(
+    lsf_resolution: float | None, expected: float, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The strong-telluric mask and the RV's telluric windows are computed at the start R of
+    the fit (``lsf.resolution``, else the exposures' header R), like the stellar template."""
+    from types import SimpleNamespace
+
+    from astropy.io import fits
+
+    import gtellcorr.data.atmosphere as atmosphere
+    import gtellcorr.data.observation.instrument as instrument
+    from gtellcorr.config.fit_config import FitConfig
+    from gtellcorr.preprocessing import telluric_mask
+    from gtellcorr.telluric.config import TelluricConfig
+
+    seen: dict[str, float] = {}
+
+    def generate(model: TelluricModel, *args: Any, **kwargs: Any) -> str:
+        seen["strong mask"] = kwargs["resolution"]
+        return "mask"
+
+    def line_transmission(model: TelluricModel, *args: Any, **kwargs: Any) -> str:
+        seen["RV windows"] = kwargs["resolution"]
+        return "lines"
+
+    profile = dict.fromkeys(("z_km", "T_K", "P_hPa", "H2O_ppmv"), np.zeros(3))
+    monkeypatch.setattr(atmosphere, "full_profile_for_exposure", lambda *a, **k: profile)
+    monkeypatch.setattr(instrument, "read_resolution", lambda *a, **k: 50000.0)  # the header R
+    monkeypatch.setattr(fits, "getheader", lambda *a, **k: {})
+    monkeypatch.setattr(TelluricModel, "lblrtm_profile", lambda self, profile: {})
+    monkeypatch.setattr(telluric_mask, "generate_strong_telluric_mask", generate)
+    monkeypatch.setattr(telluric_mask, "line_transmission", line_transmission)
+    exposure = Exposure(
+        path=tmp_path / "x.fits",
+        time_utc=datetime(2025, 4, 18, tzinfo=UTC),
+        site=Site(lat_deg=32.7, lon_deg=-109.9, alt_m=3221.0),
+        site_sources={},
+        airmass=1.2,
+        airmass_source="fits_header",
+        weather=None,
+        resolution=50000.0,
+        object="x",
+    )
+    model = TelluricModel(
+        object(),  # type: ignore[arg-type]
+        {},
+        tau_cache=tmp_path,
+        config=TelluricConfig(continuum_mode="full"),
+    )
+    spec = SimpleNamespace(
+        spectral=SimpleNamespace(wavelength_range_nm=(623.0, 742.0)),
+        resolution=SimpleNamespace(default=130000.0),
+    )
+    fit = FitConfig()
+    fit = fit.replace(lsf=fit.lsf.replace(resolution=lsf_resolution))
+    telluric_mask.ensure_strong_telluric_mask(
+        model, [exposure], instrument=spec, fit=fit, settings=None, out_dir=tmp_path, stem="x",
+    )  # type: ignore[arg-type]  # fmt: skip
+    telluric_mask.run_line_transmission(
+        model, [exposure], instrument=spec, fit=fit, settings=None,  # type: ignore[arg-type]
+    )  # fmt: skip
+    assert seen == {"strong mask": expected, "RV windows": expected}

@@ -343,6 +343,7 @@ def _build_full_profile_resolved(
     P = edit_profile(
         z_base, upper_P, lower.height_km, lower.pressure_hpa, blend_zone_km=blend_zone_km
     )
+    P = _extrapolate_pressure_below(z_base, P, lower.height_km, lower.pressure_hpa)
     H2O = edit_profile(
         z_base, upper_H2O, lower.height_km, lower.h2o_vmr_ppmv, blend_zone_km=blend_zone_km
     )
@@ -933,6 +934,33 @@ def get_full_profile(
         save_full_profile(full, out_dir, cache_stem, metadata=meta)
     _report(verbose, "full profile: constructed")
     return (full, meta) if return_meta else full
+
+
+def _extrapolate_pressure_below(z_km, p_hpa, profile_height_km, profile_pressure_hpa):
+    """Replace the pressures below the lower profile's lowest level.
+
+    :func:`edit_profile` clamps every grid level below the profile to the value of
+    its lowest level.  For T and H2O that is harmless; for pressure it gives equal
+    values on several levels when the profile starts more than one grid step above
+    0 km (MERRA-2 at a mountain site), which the TAPE5 writer rejects.  Pressure is
+    instead extrapolated exponentially with the scale height of the two lowest
+    profile levels.  These levels lie below the site, so LBLRTM never uses them.
+    """
+    prof_z = np.asarray(profile_height_km, float)
+    prof_p = np.asarray(profile_pressure_hpa, float)
+    order = np.argsort(prof_z)
+    z0, z1 = prof_z[order[0]], prof_z[order[1]]
+    p0, p1 = prof_p[order[0]], prof_p[order[1]]
+    if not (z1 > z0 and p0 > p1 > 0.0):
+        raise ValueError(
+            "the lowest two levels of the lower profile must rise in altitude and fall "
+            f"in pressure, got z = ({z0}, {z1}) km, P = ({p0}, {p1}) hPa"
+        )
+    scale_height_km = (z1 - z0) / np.log(p0 / p1)
+    out = np.array(p_hpa, dtype=np.float64, copy=True)
+    below = z_km < z0
+    out[below] = p0 * np.exp(-(z_km[below] - z0) / scale_height_km)
+    return out
 
 
 # ==================================================================

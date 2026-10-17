@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/gtellcorr-logo-dark.svg">
+    <img src="docs/logo/gtellcorr-logo.svg" alt="gtellcorr" width="420">
+  </picture>
+</p>
+
 # gtellcorr
 
 Clean the Earth's atmosphere out of your high-resolution spectra. gtellcorr rebuilds
@@ -14,9 +21,10 @@ gtellcorr currently comes with definitions for **WIYN/NEID**, **LBT/PEPSI** and
 **VLT/ESPRESSO**; other echelle spectrographs can be described in a TOML file, and
 more instruments will follow.
 
-> Version 0.9.1 is a public preview of 1.0. It reproduces the results of the
-> accompanying paper (Luo et al., submitted to *Universe*). See
-> [Known limitations](#known-limitations) before using it.
+> Version 0.10.0 is a public preview of 1.0. It includes changes to the scientific
+> defaults since 0.9.1. See [Upgrading from 0.9.1](#upgrading-from-091) and
+> [Known limitations](#known-limitations) before using it. The accompanying paper
+> is Luo et al., submitted to *Universe*.
 
 ## Installation
 
@@ -25,14 +33,14 @@ earlier, pip has to compile the `pymsis` dependency, which needs a Fortran compi
 (for example `conda install -c conda-forge gfortran`).
 
 ```bash
-pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.1"
+pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.0"
 ```
 
 Optional extras:
 
 ```bash
-pip install "gtellcorr[era5] @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.1"   # ERA5 profiles
-pip install "gtellcorr[pysme] @ git+https://github.com/xiangluo0902/gtellcorr@v0.9.1"  # pySME stellar templates
+pip install "gtellcorr[era5] @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.0"   # ERA5 profiles
+pip install "gtellcorr[pysme] @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.0"  # pySME stellar templates
 ```
 
 `environment.yml` pins the exact library versions used for the paper:
@@ -78,7 +86,7 @@ The build needs `conda` or `mamba`: it creates a separate conda-forge environmen
 with gfortran and NetCDF-Fortran under the resource directory. To use an existing
 NetCDF-Fortran and gfortran installation instead, pass `--netcdf-prefix`. The
 bundle is checked once it is built; `gtellcorr resources verify` repeats the
-check at any time.
+check at any time. The build has been tested on macOS and Linux.
 
 A bundle copied from another computer needs its file sizes and checksums recorded
 once with `gtellcorr resources freeze --bundle PATH`.
@@ -124,10 +132,13 @@ can be given with `GTELLCORR_SETTINGS`), or in environment variables:
 | `stellar_linelist` | `GTELLCORR_STELLAR_LINELIST` | none (VALD list for pySME) |
 | `ispec_dir` | `GTELLCORR_ISPEC_DIR` | none (iSpec installation) |
 | `lblrtm_timeout_s` | `GTELLCORR_LBLRTM_TIMEOUT` | 600 |
+| `lblrtm_workers` | `GTELLCORR_LBLRTM_WORKERS` | `"auto"` (LBLRTM runs of a cache at the same time: the CPUs available, at most 8) |
 
 iSpec is needed for stellar-line masks measured on the master spectrum, for the
 iSpec continuum of the master spectrum, and for the iSpec synthesis backend.
 Stellar templates synthesised with pySME, or supplied by you, do not need it.
+iSpec is imported into gtellcorr's Python environment and needs `statsmodels` and
+`lockfile` there (both are in `environment.yml`).
 
 ## Usage
 
@@ -172,17 +183,110 @@ A run writes to `<output>/<target>/<site>_<instrument>/<night>/`:
 
 `gtc.load_result(path)` reads a finished run.
 
+### Example data and notebooks
+
+The [v0.10.0 release](https://github.com/xiangluo0902/gtellcorr/releases/tag/v0.10.0)
+has an example data set, `gtellcorr-example-pepsi.zip`: one PEPSI spectrum of the K
+dwarf TOI-2076 (LBT, 2025 June 19), the ERA5 data of its atmospheric profile and a pySME
+stellar template, with a run file. Unzip it and, from its folder:
+
+```bash
+GTELLCORR_ATMOSPHERE_CACHE=atmos_profiles gtellcorr run run.toml -o out
+```
+
+No weather-archive account is needed, since the profile data are included; the LBLRTM
+bundle and the reference files must be set up as above.
+
+`examples/paper/` holds the notebooks (with script versions) that reproduce the
+corrections of the paper: a night of PEPSI spectra of TOI-2076, the mask and template
+treatments of the stellar lines, NEID spectra of WASP-33, ESPRESSO spectra of GJ 436
+with a PHOENIX template, and three meteorological sources for HAT-P-26. They are
+published with their outputs; apart from the example spectrum and the ESO and NEID
+archive files they name, their data are not public yet.
+
+### Scientific defaults and optional parameters
+
+Orders of each exposure share their fitted molecular columns by default
+(`relcol_mode = "joint_orders"`); `"single_order"` fits them independently.
+The optical-depth cache includes the LBLRTM continua at the reference columns
+(`telluric.continuum_mode = "full"`). `"none"` omits them; `"scaled"` is an
+optional quadratic approximation that follows the fitted columns and omits cross
+terms between fitted molecules. It has been checked against direct calculations
+under the O2 A band; that check does not establish its accuracy over every band
+or atmospheric condition.
+
+The stored `TELL_MODEL` holds the line absorption. With `"full"` or `"scaled"`,
+the broadband part is moved into `CONTINUUM`, keeping their product unchanged.
+`FLUX_CORRECTED` and `ERR_CORRECTED` are the observed flux and its uncertainty
+divided by `TELL_MODEL`; the uncertainty does not include fitted-model errors.
+
+The fit solves the continuum once at each parameter evaluation
+(`continuum.niter = 1`). The saved continuum is then refitted with clipping
+(`continuum.output_niter = 5`); that final refit does not change the fitted
+parameters or corrected flux.
+
+Stellar RVs are measured while masking predicted telluric lines
+(`rv.telluric_mask = "model"`, line transmission below 0.99, padded by 2 km/s).
+The CCF grid extends beyond `rv.ccf_v_lo` / `rv.ccf_v_hi` by
+`rv.ccf_vsini_pad * vsini` on each side (default factor 2); a factor of 0 keeps
+the fixed grid. These RVs place the stellar template and masks. A separate
+template velocity can be fitted with `stellar_model.fit_shift = true` (default
+false); it does not move the telluric model or replace the wavelength-solution
+correction. It is shared across orders in a joint fit.
+
+### Upgrading from 0.9.1
+
+Existing TOML files remain readable, but omitted fields take the new defaults.
+To retain the earlier default choices, set these fields explicitly (keep your
+existing `relcol_mode` and `continuum.niter` if you already chose them):
+
+```toml
+[fit]
+relcol_mode = "single_order"
+
+[fit.telluric]
+continuum_mode = "none"
+
+[fit.continuum]
+niter = 5
+output_niter = 5
+
+[fit.rv]
+telluric_mask = "bands"
+ccf_vsini_pad = 0.0
+
+[fit.stellar_model]
+fit_shift = false
+```
+
+These settings preserve the earlier choices, not a guarantee of identical
+results after bug fixes. Existing atmospheric-profile caches are reused by the
+pressure-extrapolation fix; use a separate `atmosphere_cache` directory when
+evaluating freshly constructed profiles. The optical-depth cache distinguishes
+`none`, `full` and `scaled`; old line-only caches are read as `none`, and a cache
+with a different physical identity is not substituted for the requested one.
+
+New FITS files append `stellar_shift` and `stellar_shift_err` to `ORDER_SUMMARY`
+(km/s, NaN when disabled); `summary.csv` appends `stellar_shift` (empty when
+disabled). The image layout and `S2DIMGV2` identifier are unchanged. The reader
+accepts older files without these columns; scripts requiring an exact column
+list must allow the additions.
+
 ## Known limitations
 
-- The LBLRTM bundle has been built and tested on macOS. The Linux build is
-  implemented but not yet verified on a Linux host.
-- A synthesised stellar template is reused while its file exists; so are the RV
-  table (if it covers every exposure) and the master spectrum. After changing the
-  parameters they depend on, delete them from the run directory. (`--reuse`
-  applies to the exposure results only; those are refitted when the fit
-  configuration changes.)
-- No example data set is included yet; the spectra used in the paper will be
-  published with it.
+- A synthesised stellar template and the master spectrum are reused while their
+  files exist. After changing inputs they depend on, remove the affected products
+  (and the corresponding template chunk directory) before rebuilding. Measured RV
+  tables record the template, mask windows, CCF grid and orders, and are remeasured
+  when that record changes; this is not a complete check of every upstream input.
+  `--reuse` applies to exposure results only; those are refitted when the fit
+  configuration changes.
+- Broad-lined A-star CCFs can return an incorrect RV even with the wider grid.
+  Inspect the CCF or supply RVs with `rv.source = "user_file"`. Template velocity
+  fitting has not improved telluric recovery in the tested simulation grid and
+  can hit its bounds at low resolution or for broad-lined stars; it is off by
+  default. Stellar-template mismatch can still bias the fitted columns and
+  wavelength-solution correction.
 
 ## Citation
 
@@ -196,7 +300,9 @@ Environmental Research, Inc. (AER), redistributed under their licences
 (`src/gtellcorr/telluric/lblrtm/third_party_notices/`); the line file is based on
 HITRAN2020 (Gordon et al. 2022, JQSRT 277, 107949). Upper-atmosphere profiles use
 NRLMSISE-00 through pymsis, with space-weather indices from CelesTrak, and the MIPAS
-reference atmospheres distributed with RFM (University of Oxford).
+reference atmospheres distributed with RFM (University of Oxford). The example data
+contain ERA5 data (Hersbach et al. 2020, Copernicus Climate Change Service, CC-BY 4.0)
+and a spectrum taken with PEPSI at the Large Binocular Telescope.
 
 ## License
 

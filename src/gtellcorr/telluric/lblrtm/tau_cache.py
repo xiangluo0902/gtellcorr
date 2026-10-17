@@ -12,6 +12,31 @@ observer altitude. All other
 molecules are zero in a fitted-molecule run; fitted molecules are zero in the
 fixed run.
 
+The molecular components are line absorption only (LBLRTM continua off). With
+``continuum_mode="full"`` two more runs are made, with every molecule at its
+reference (fitted) or fixed column, once with all LBLRTM continua (H2O, O2 and N2
+continua and collision-induced absorption, Rayleigh extinction, O3 cross sections)
+and once without; their difference, the continuum optical depth, is added to the
+fixed component and also stored on its own (``tau_continuum``), so the broadband
+part can be separated from the line absorption. It is held fixed while the fitted
+columns are scaled (an approximation: e.g. the O2 collision-induced absorption
+scales with the square of the O2 column). Each continuum is counted once, which
+running every component with continua on would not do (Rayleigh extinction, for
+one, does not depend on the molecule columns). ``continuum_mode="none"`` leaves the
+continua out entirely.
+
+``continuum_mode="scaled"`` makes the ``full`` runs and, for each fitted molecule,
+four more: with continua and without, at zero and twice its reference column (the
+others at their reference or fixed columns). With the continuum optical depth at
+zero, one and two times the reference column, a quadratic in the relative column
+``r`` is exact for each molecule on its own (the H2O self continuum and the O2-O2
+collision-induced absorption go as ``r**2``, the foreign and O2-N2 continua as
+``r``, Rayleigh extinction not at all); the coefficients are stored per molecule
+(``tau_cont_beta``, ``tau_cont_gamma``) and the continuum optical depth is
+``tau_continuum + sum_m [beta_m (r_m - 1) + gamma_m (r_m - 1)**2]``. Cross terms
+between fitted molecules are left out. At the reference columns the result is the
+``full`` cache's.
+
 Each component is read directly from the IEMIT=0 binary TAPE12 sight-line
 optical-depth product.  Finite values, including finite negative values, are
 retained unchanged; NaN or infinity rejects the complete build.  No
@@ -22,10 +47,12 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import math
 import os
 import tempfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
@@ -47,6 +74,9 @@ from .lblrtm_molecules import (
 from .lblrtm_resources import ResolvedLblrtmResourceFiles
 from .optical_depth_calculator import calculate_lblrtm_optical_depth
 from .tape5_writer import validate_lblrtm_layer_input
+from .workers import resolve_lblrtm_workers
+
+log = logging.getLogger(__name__)
 
 _REFERENCE_COLUMNS: Final[Mapping[str, float]] = MappingProxyType(
     {
@@ -83,6 +113,12 @@ _SUPPORTED_WAVELENGTH_FORMULAS: Final[frozenset[str]] = frozenset(
     {"espresso", "edlen1966", "ciddor1996"}
 )
 _CIDDOR_WAVELENGTH_RANGE_NM: Final[tuple[float, float]] = (230.0, 1700.0)
+#: ``none``: line absorption only; ``full``: plus the LBLRTM continua; ``scaled``: plus
+#: the continua as a quadratic in each fitted column (module docstring)
+_CACHE_CONTINUUM_MODES: Final[frozenset[str]] = frozenset({"none", "full", "scaled"})
+#: Relative columns of the extra continuum runs of a ``scaled`` cache (the reference,
+#: 1, is the ``full`` run)
+_SCALED_CONTINUUM_RELATIVE_COLUMNS: Final[tuple[float, float]] = (0.0, 2.0)
 _CALCULATOR_METADATA_FIELDS: Final[tuple[str, ...]] = (
     "metadata_schema_version",
     "source_product",
@@ -635,6 +671,18 @@ def _cache_key_metadata(
             "wave_margin_nm": float(wave_margin_nm),
         },
         "continuum_mode": continuum_mode,
+        **({"continuum_storage": "separate_tau_continuum"} if continuum_mode == "full" else {}),
+        **(
+            {
+                "continuum_storage": "separate_tau_continuum_quadratic_in_column",
+                "continuum_scaling": {
+                    "policy": "quadratic_per_fit_molecule_no_cross_terms",
+                    "relative_columns": [*_SCALED_CONTINUUM_RELATIVE_COLUMNS, 1.0],
+                },
+            }
+            if continuum_mode == "scaled"
+            else {}
+        ),
         "optical_depth_output": {
             "spectral_output": "optical_depth",
             "iemit": 0,
@@ -1005,6 +1053,45 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
+def _continuum_run_plan(
+    fit_molecules: tuple[str, ...], continuum_mode: str
+) -> tuple[tuple[str, str | None, float | None, str], ...]:
+    """The continuum runs that follow the fixed run, in order: ``(role, molecule,
+    relative column of that molecule, LBLRTM continuum mode)``; molecule and column
+    are ``None`` for the runs with every molecule at its reference or fixed column."""
+    if continuum_mode == "none":
+        return ()
+    plan: list[tuple[str, str | None, float | None, str]] = [
+        ("continuum_full", None, None, "full"),
+        ("continuum_none", None, None, "none"),
+    ]
+    if continuum_mode == "scaled":
+        for molecule in fit_molecules:
+            for relative_column in _SCALED_CONTINUUM_RELATIVE_COLUMNS:
+                for mode in ("full", "none"):
+                    plan.append((f"continuum_scaled_{mode}", molecule, relative_column, mode))
+    return tuple(plan)
+
+
+def _quadratic_continuum_coefficients(
+    at_low: np.ndarray, at_reference: np.ndarray, at_high: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(beta, gamma)`` of the quadratic through the continuum optical depths at
+    0, 1 and 2 times the reference column, in ``d = r - 1``:
+    ``tau(d) = at_reference + beta d + gamma d**2`` (the runs of
+    ``_SCALED_CONTINUUM_RELATIVE_COLUMNS``)."""
+    beta = np.array(0.5 * (at_high - at_low), dtype=np.float64, copy=True)
+    gamma = np.array(0.5 * (at_high + at_low) - at_reference, dtype=np.float64, copy=True)
+    return beta, gamma
+
+
+def _scaled_relative_column(
+    molecule: str, relative_column: float, column_scale_denominators: Mapping[str, float]
+) -> float:
+    """LBLRTM profile multiplier of *molecule* at *relative_column* times its reference."""
+    return relative_column * _REFERENCE_COLUMNS[molecule] / column_scale_denominators[molecule]
+
+
 def _validate_loaded_build_provenance(
     value: object,
     *,
@@ -1015,15 +1102,20 @@ def _validate_loaded_build_provenance(
     optical_depth_grid_spacing_cm1: float,
     profile_digest: str,
     resource_fingerprint: str,
+    continuum_mode: str,
 ) -> object:
     """Check the build record of a loaded cache against its grid,
     molecules, columns and construction settings."""
     if not isinstance(value, Mapping):
         raise ValueError("optical-depth cache: its build record is not a table")
     record = dict(value)
+    if "continuum_mode" not in record and continuum_mode == "none":
+        # caches written before continua were supported have no such field
+        record["continuum_mode"] = "none"
     expected_fields = {
         "schema",
         "run_count",
+        "continuum_mode",
         "fit_molecules",
         "fixed_columns",
         "spectral_output",
@@ -1052,11 +1144,13 @@ def _validate_loaded_build_provenance(
         runs = tuple(record["runs"])
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("optical-depth cache: its build record is malformed") from exc
+    continuum_plan = _continuum_run_plan(fit_molecules, continuum_mode)
     if (
         record["schema"] != _CACHE_SCHEMA
         or recorded_fit_molecules != fit_molecules
         or recorded_fixed_columns != dict(fixed_columns)
-        or run_count != len(fit_molecules) + 1
+        or record["continuum_mode"] != continuum_mode
+        or run_count != len(fit_molecules) + 1 + len(continuum_plan)
         or len(runs) != run_count
         or record["spectral_output"] != "optical_depth"
         or record["iemit"] != 0
@@ -1166,11 +1260,24 @@ def _validate_loaded_build_provenance(
                 _REFERENCE_COLUMNS[expected_molecule] / column_scale_denominators[expected_molecule]
             )
         else:
-            expected_role = "fixed_molecules"
             expected_molecule = None
             expected_columns = dict(zero_columns)
             for molecule, column in fixed_columns.items():
                 expected_columns[molecule] = float(column) / column_scale_denominators[molecule]
+            if run_index == len(fit_molecules):
+                expected_role = "fixed_molecules"
+            else:  # the continuum runs: every molecule at its reference or fixed column
+                expected_role, expected_molecule, relative_column, _ = continuum_plan[
+                    run_index - len(fit_molecules) - 1
+                ]
+                for molecule in fit_molecules:
+                    expected_columns[molecule] = (
+                        _REFERENCE_COLUMNS[molecule] / column_scale_denominators[molecule]
+                    )
+                if expected_molecule is not None and relative_column is not None:
+                    expected_columns[expected_molecule] = _scaled_relative_column(
+                        expected_molecule, relative_column, column_scale_denominators
+                    )
         try:
             recorded_columns = _normalize_fixed_columns(run["relative_columns"])
             source_grid_size = int(run["source_grid_size"])
@@ -1347,8 +1454,11 @@ class TauCache:
                     f"vacuum wavelength interval to lie in "
                     f"[{ciddor_lower}, {ciddor_upper}] nm"
                 )
-        if continuum_mode != "none":
-            raise ValueError("the optical-depth cache supports only continuum_mode='none'")
+        if continuum_mode not in _CACHE_CONTINUUM_MODES:
+            raise ValueError(
+                f"continuum_mode must be one of {sorted(_CACHE_CONTINUUM_MODES)}, "
+                f"got {continuum_mode!r}"
+            )
         optical_depth_spacing = _coerce_finite_float(
             optical_depth_grid_spacing_cm1,
             field_name="optical_depth_grid_spacing_cm1",
@@ -1409,6 +1519,9 @@ class TauCache:
         self.fixed: dict[str, float] = {}
         self.tau_unit: dict[str, np.ndarray] = {}
         self.tau_fixed: np.ndarray | None = None
+        self.tau_continuum: np.ndarray | None = None
+        self.tau_cont_beta: dict[str, np.ndarray] = {}
+        self.tau_cont_gamma: dict[str, np.ndarray] = {}
         self.build_provenance: Mapping[str, Any] | None = None
         self.cache_metadata: Mapping[str, Any] | None = None
         self.cache_key: str | None = None
@@ -1459,9 +1572,10 @@ class TauCache:
     def _run_lblrtm(
         self,
         relative_columns: Mapping[str, float],
+        continuum_mode: str = "none",
     ) -> LblrtmOpticalDepthSpectrum:
         """One IEMIT=0 LBLRTM run with *relative_columns*, on the resources this
-        cache was keyed with."""
+        cache was keyed with (continua off unless *continuum_mode* is ``full``)."""
         if self.resources is None:
             raise RuntimeError(
                 "this loaded cache has no explicitly validated resource object; "
@@ -1493,7 +1607,7 @@ class TauCache:
             molecule_relative_columns=relative_columns,
             resources=self.resources,
             wave_margin_nm=self.wave_margin_nm,
-            continuum_mode=self.continuum_mode,
+            continuum_mode=continuum_mode,
             optical_depth_grid_spacing_cm1=(self.optical_depth_grid_spacing_cm1),
             timeout_s=self.timeout_s,
             verbose=self.verbose,
@@ -1502,8 +1616,43 @@ class TauCache:
             raise TypeError("LBLRTM IEMIT=0 path did not return optical-depth data")
         return result
 
-    def build(self, fit_molecules=("h2o",), fixed=None):
-        """Build ``len(fit_molecules) + 1`` optical-depth components."""
+    def _run_all(
+        self, runs: list[tuple[dict[str, float], str]], workers: int
+    ) -> Iterator[LblrtmOpticalDepthSpectrum]:
+        """Results of the LBLRTM *runs* ``(relative columns, continuum mode)``, in
+        order, with up to *workers* runs at a time.
+
+        If a run fails, or the caller stops early, the runs not yet started are
+        cancelled and the running ones are waited for (each removes its own work
+        directory) before the error is passed on.
+        """
+        if workers <= 1 or len(runs) <= 1:
+            for columns, mode in runs:
+                yield self._run_lblrtm(columns, continuum_mode=mode)
+            return
+        executor = ThreadPoolExecutor(
+            max_workers=min(workers, len(runs)), thread_name_prefix="gtellcorr-lblrtm"
+        )
+        try:
+            futures = [
+                executor.submit(self._run_lblrtm, columns, continuum_mode=mode)
+                for columns, mode in runs
+            ]
+            for future in futures:
+                yield future.result()
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+    def build(self, fit_molecules=("h2o",), fixed=None, *, workers=1):
+        """Build ``len(fit_molecules) + 1`` optical-depth components (two more LBLRTM
+        runs give the continuum part of the fixed component when ``continuum_mode`` is
+        ``full`` or ``scaled``, and four more per fitted molecule its column
+        dependence when it is ``scaled``).
+
+        Up to *workers* LBLRTM runs are made at the same time (``None``: the number
+        of :func:`~gtellcorr.telluric.lblrtm.workers.auto_lblrtm_workers`). The
+        cache is the same byte for byte whatever the number.
+        """
 
         expected_cache_key, expected_cache_metadata = self.expected_cache_identity(
             fit_molecules, fixed
@@ -1575,6 +1724,9 @@ class TauCache:
             )
             return optical_depth
 
+        # every LBLRTM run of the cache, in the order of the build record:
+        # (role, molecule, relative columns, LBLRTM continuum mode)
+        runs: list[tuple[str, str | None, dict[str, float], str]] = []
         for molecule in molecules:
             relative_columns = dict(zero_relative_columns)
             # H2O has denominator 1, so its reference run uses the supplied
@@ -1584,13 +1736,50 @@ class TauCache:
             relative_columns[molecule] = (
                 references[molecule] / self.column_scale_denominators[molecule]
             )
-            result = self._run_lblrtm(relative_columns)
-            reference_depth = normalize_run(
-                result,
-                role="fit_molecule",
-                molecule=molecule,
-                relative_columns=relative_columns,
+            runs.append(("fit_molecule", molecule, relative_columns, "none"))
+        fixed_relative_columns = dict(zero_relative_columns)
+        for molecule, column in fixed_columns.items():
+            fixed_relative_columns[molecule] = column / self.column_scale_denominators[molecule]
+        runs.append(("fixed_molecules", None, fixed_relative_columns, "none"))
+        continuum_plan = _continuum_run_plan(molecules, self.continuum_mode)
+        # every molecule at its reference (fitted) or fixed column: with minus
+        # without the continua is the continuum optical depth of the sight line;
+        # a scaled cache repeats the pair with one fitted molecule at 0 and 2
+        # times its reference column
+        all_relative_columns = dict(fixed_relative_columns)
+        for molecule in molecules:
+            all_relative_columns[molecule] = (
+                references[molecule] / self.column_scale_denominators[molecule]
             )
+        for role, molecule, relative_column, mode in continuum_plan:
+            run_columns = dict(all_relative_columns)
+            if molecule is not None and relative_column is not None:
+                run_columns[molecule] = _scaled_relative_column(
+                    molecule, relative_column, self.column_scale_denominators
+                )
+            runs.append((role, molecule, run_columns, mode))
+
+        # the runs are independent; they may run at the same time, but their
+        # results are put on the grid in the order above (the first one defines
+        # it), so the cache does not depend on the number of threads
+        threads, source = resolve_lblrtm_workers(workers, len(runs))
+        log.info(
+            "LBLRTM optical depths for %.2f-%.2f nm (vacuum): %d runs, %d at a time (%s)",
+            1.0e7 / self.window["highfreq"],
+            1.0e7 / self.window["lowfreq"],
+            len(runs),
+            threads,
+            source,
+        )
+        with contextlib.closing(
+            self._run_all([(columns, mode) for _, _, columns, mode in runs], threads)
+        ) as results:
+            depths = [
+                normalize_run(result, role=role, molecule=molecule, relative_columns=run_columns)
+                for (role, molecule, run_columns, _mode), result in zip(runs, results, strict=True)
+            ]
+
+        for molecule, reference_depth in zip(molecules, depths[: len(molecules)], strict=True):
             unit_depth = np.array(
                 # The fit supplies C_m = s_m * REF_COLUMN[m].  Persisting
                 # tau_ref / REF_COLUMN therefore preserves the public fit
@@ -1603,16 +1792,42 @@ class TauCache:
             unit_depth.setflags(write=False)
             unit_depths[molecule] = unit_depth
 
-        fixed_relative_columns = dict(zero_relative_columns)
-        for molecule, column in fixed_columns.items():
-            fixed_relative_columns[molecule] = column / self.column_scale_denominators[molecule]
-        fixed_result = self._run_lblrtm(fixed_relative_columns)
-        fixed_depth = normalize_run(
-            fixed_result,
-            role="fixed_molecules",
-            molecule=None,
-            relative_columns=fixed_relative_columns,
-        )
+        fixed_depth = depths[len(molecules)]
+        continuum_depth: np.ndarray | None = None
+        cont_beta: dict[str, np.ndarray] = {}
+        cont_gamma: dict[str, np.ndarray] = {}
+        if continuum_plan:
+            with_continua: dict[tuple[str | None, float | None, str], np.ndarray] = {
+                (molecule, relative_column, mode): depth
+                for (_role, molecule, relative_column, mode), depth in zip(
+                    continuum_plan, depths[len(molecules) + 1 :], strict=True
+                )
+            }
+            continuum_depth = np.array(
+                with_continua[None, None, "full"] - with_continua[None, None, "none"],
+                dtype=np.float64,
+                copy=True,
+            )
+            continuum_depth.setflags(write=False)
+            fixed_depth = np.array(fixed_depth + continuum_depth, dtype=np.float64, copy=True)
+            if self.continuum_mode == "scaled":
+                low, high = _SCALED_CONTINUUM_RELATIVE_COLUMNS
+                for molecule in molecules:
+                    at_low = (
+                        with_continua[molecule, low, "full"] - with_continua[molecule, low, "none"]
+                    )
+                    at_high = (
+                        with_continua[molecule, high, "full"]
+                        - with_continua[molecule, high, "none"]
+                    )
+                    beta, gamma = _quadratic_continuum_coefficients(
+                        at_low, continuum_depth, at_high
+                    )
+                    beta.setflags(write=False)
+                    gamma.setflags(write=False)
+                    cont_beta[molecule] = beta
+                    cont_gamma[molecule] = gamma
+        continuum_runs = len(continuum_plan)
         if cache_grid is None:  # pragma: no cover - fixed run always defines it
             raise RuntimeError("LBLRTM cache build produced no wavelength grid")
         if (
@@ -1625,7 +1840,8 @@ class TauCache:
 
         build_record = {
             "schema": _CACHE_SCHEMA,
-            "run_count": len(molecules) + 1,
+            "run_count": len(molecules) + 1 + continuum_runs,
+            "continuum_mode": self.continuum_mode,
             "fit_molecules": list(molecules),
             "fixed_columns": fixed_columns,
             "spectral_output": "optical_depth",
@@ -1662,13 +1878,16 @@ class TauCache:
         self.fixed = fixed_columns
         self.tau_unit = unit_depths
         self.tau_fixed = fixed_depth
+        self.tau_continuum = continuum_depth
+        self.tau_cont_beta = cont_beta
+        self.tau_cont_gamma = cont_gamma
         self.build_provenance = _freeze_json(build_record)
         self.cache_metadata = expected_cache_metadata
         self.cache_key = expected_cache_key
         return self
 
-    def optical_depth(self, **scales):
-        """Return total optical depth for public fit-molecule columns."""
+    def _fit_columns(self, scales: Mapping[str, object]) -> dict[str, float]:
+        """Public column of every fitted molecule: the given one, else the reference."""
 
         if self.wavegrid is None or self.tau_fixed is None:
             raise RuntimeError("cache not built; call build() first")
@@ -1688,12 +1907,36 @@ class TauCache:
         unknown = set(normalized_scales) - set(self.fit_molecules)
         if unknown:
             raise ValueError(f"{sorted(unknown)} not in fit_molecules {self.fit_molecules}")
+        return {
+            molecule: normalized_scales.get(molecule, self.ref[molecule])
+            for molecule in self.fit_molecules
+        }
 
+    def _continuum_change(self, columns: Mapping[str, float]) -> np.ndarray | None:
+        """Change of the continuum optical depth from the reference columns (scaled
+        caches; ``None`` otherwise)."""
+
+        if self.continuum_mode != "scaled":
+            return None
+        change = np.zeros_like(self.tau_fixed, dtype=np.float64)
+        for molecule in self.fit_molecules:
+            offset = columns[molecule] / self.ref[molecule] - 1.0
+            with np.errstate(invalid="ignore", over="ignore"):
+                change += offset * self.tau_cont_beta[molecule]
+                change += offset * offset * self.tau_cont_gamma[molecule]
+        return change
+
+    def optical_depth(self, **scales):
+        """Return total optical depth for public fit-molecule columns."""
+
+        columns = self._fit_columns(scales)
         total = np.array(self.tau_fixed, dtype=np.float64, copy=True)
         for molecule in self.fit_molecules:
-            column = normalized_scales.get(molecule, self.ref[molecule])
             with np.errstate(invalid="ignore", over="ignore"):
-                total += column * self.tau_unit[molecule]
+                total += columns[molecule] * self.tau_unit[molecule]
+        change = self._continuum_change(columns)
+        if change is not None:
+            total += change
         return total
 
     def transmittance(self, **scales):
@@ -1701,6 +1944,20 @@ class TauCache:
 
         with np.errstate(invalid="ignore", over="ignore", under="ignore"):
             return np.exp(-self.optical_depth(**scales))
+
+    def continuum_transmittance(self, **scales):
+        """Transmission of the LBLRTM continua alone at the public fit-molecule
+        columns (part of every :meth:`transmittance`), or ``None`` when the cache
+        holds no continua. Only a ``scaled`` cache depends on the columns."""
+
+        if self.tau_continuum is None:
+            return None
+        depth = np.asarray(self.tau_continuum, dtype=np.float64)
+        change = self._continuum_change(self._fit_columns(scales))
+        if change is not None:
+            depth = depth + change
+        with np.errstate(over="ignore", under="ignore"):
+            return np.exp(-depth)
 
     def save(self, path, *, overwrite=False):
         """Validate and atomically publish a schema-v3 cache archive."""
@@ -1772,6 +2029,20 @@ class TauCache:
                 "wavegrid": np.asarray(self.wavegrid, dtype=np.float64),
                 "tau_fixed": np.asarray(self.tau_fixed, dtype=np.float64),
             }
+            if self.continuum_mode in ("full", "scaled"):
+                if self.tau_continuum is None:  # pragma: no cover - build sets it
+                    raise RuntimeError(
+                        f"internal error: {self.continuum_mode}-mode cache has no tau_continuum"
+                    )
+                arrays["tau_continuum"] = np.asarray(self.tau_continuum, dtype=np.float64)
+            if self.continuum_mode == "scaled":
+                for molecule in self.fit_molecules:
+                    arrays[f"tau_cont_beta_{molecule}"] = np.asarray(
+                        self.tau_cont_beta[molecule], dtype=np.float64
+                    )
+                    arrays[f"tau_cont_gamma_{molecule}"] = np.asarray(
+                        self.tau_cont_gamma[molecule], dtype=np.float64
+                    )
             for molecule in self.fit_molecules:
                 arrays[f"tauunit_{molecule}"] = np.asarray(
                     self.tau_unit[molecule],
@@ -1977,9 +2248,18 @@ class TauCache:
                     "optical-depth cache: the atmospheric profile has unexpected levels"
                 )
 
+            stores_continuum = metadata.get("continuum_mode") in ("full", "scaled")
+            stores_scaling = metadata.get("continuum_mode") == "scaled"
+            scaling_keys = tuple(
+                f"tau_cont_{coefficient}_{molecule}"
+                for molecule in molecules
+                for coefficient in ("beta", "gamma")
+            )
             expected_array_keys = {
                 "wavegrid",
                 "tau_fixed",
+                *(("tau_continuum",) if stores_continuum else ()),
+                *(scaling_keys if stores_scaling else ()),
                 "_meta",
                 *(f"tauunit_{molecule}" for molecule in molecules),
                 *(f"profile_{field_name}" for field_name in _PROFILE_FIELDS),
@@ -2014,8 +2294,20 @@ class TauCache:
                 )
                 for molecule in molecules
             }
-            if not np.all(np.isfinite(tau_fixed)) or any(
-                not np.all(np.isfinite(tau_unit[molecule])) for molecule in molecules
+            tau_continuum = (
+                _read_float_array(archive, "tau_continuum", expected_size=wavegrid.size)
+                if stores_continuum
+                else None
+            )
+            tau_scaling = {
+                key: _read_float_array(archive, key, expected_size=wavegrid.size)
+                for key in (scaling_keys if stores_scaling else ())
+            }
+            if (
+                not np.all(np.isfinite(tau_fixed))
+                or any(not np.all(np.isfinite(tau_unit[molecule])) for molecule in molecules)
+                or (tau_continuum is not None and not np.all(np.isfinite(tau_continuum)))
+                or any(not np.all(np.isfinite(array)) for array in tau_scaling.values())
             ):
                 raise ValueError("cache optical-depth arrays contain non-finite values")
             profile_input = {
@@ -2031,6 +2323,8 @@ class TauCache:
             loaded_arrays = {
                 "wavegrid": wavegrid,
                 "tau_fixed": tau_fixed,
+                **({"tau_continuum": tau_continuum} if tau_continuum is not None else {}),
+                **tau_scaling,
                 **{f"tauunit_{molecule}": tau_unit[molecule] for molecule in molecules},
                 **{f"profile_{field_name}": profile[field_name] for field_name in _PROFILE_FIELDS},
             }
@@ -2128,8 +2422,8 @@ class TauCache:
                 minimum=0.0,
             )
             continuum_mode = metadata["continuum_mode"]
-            if continuum_mode != "none":
-                raise ValueError("the optical-depth cache supports only continuum_mode='none'")
+            if continuum_mode not in _CACHE_CONTINUUM_MODES:
+                raise ValueError(f"saved continuum_mode {continuum_mode!r} is unsupported")
             optical_depth_spacing = _coerce_finite_float(
                 metadata["optical_depth_grid_spacing_cm1"],
                 field_name="saved optical_depth_grid_spacing_cm1",
@@ -2169,6 +2463,7 @@ class TauCache:
             optical_depth_grid_spacing_cm1=optical_depth_spacing,
             profile_digest=profile_digest,
             resource_fingerprint=recorded_fingerprint,
+            continuum_mode=continuum_mode,
         )
         reconstructed_cache_metadata = _cache_key_metadata(
             resource_provenance=resource_record,
@@ -2215,6 +2510,17 @@ class TauCache:
         obj.fixed = fixed
         obj.tau_unit = tau_unit
         obj.tau_fixed = tau_fixed
+        obj.tau_continuum = tau_continuum
+        obj.tau_cont_beta = {
+            molecule: tau_scaling[f"tau_cont_beta_{molecule}"]
+            for molecule in molecules
+            if stores_scaling
+        }
+        obj.tau_cont_gamma = {
+            molecule: tau_scaling[f"tau_cont_gamma_{molecule}"]
+            for molecule in molecules
+            if stores_scaling
+        }
         obj.build_provenance = validated_build_record
         obj.cache_metadata = reconstructed_cache_metadata
         obj.cache_key = cache_key

@@ -59,6 +59,10 @@ class OrderFitResult:
     """Chebyshev coefficients [km/s] of the wavelength-solution correction (``None``:
     no correction; :mod:`gtellcorr.fitting.wave_shift`)."""
     wave_shift_err: tuple[float, ...] | None = None
+    stellar_shift: float | None = None
+    """Velocity [km/s] of the stellar template beyond its placement RV (``None``: the
+    template as placed; :mod:`gtellcorr.fitting.stellar_shift`)."""
+    stellar_shift_err: float | None = None
     stellar_treatment: str = "mask"
     converged: bool | None = None
     """Whether the optimiser converged (``None``: not fitted). In a joint fit, that of

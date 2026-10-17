@@ -29,7 +29,7 @@ from gtellcorr.data.observation.instrument import (
 from gtellcorr.data.observation.observation import Exposure, Observation
 from gtellcorr.data.observation.readers import readers
 from gtellcorr.data.observation.site import Site, resolve_site, sites
-from gtellcorr.data.observation.spectrum import OrderSpectrum, RawOrder
+from gtellcorr.data.observation.spectrum import InputGrid, OrderSpectrum, RawOrder
 from gtellcorr.data.observation.target import Star, Transit
 
 __all__ = [
@@ -39,6 +39,7 @@ __all__ = [
     "Frames",
     "HeaderField",
     "HeaderSchema",
+    "InputGrid",
     "InstrumentSpec",
     "Observation",
     "OrderSpectrum",

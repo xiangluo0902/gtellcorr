@@ -60,7 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Identify the instrument and list the selected exposures with their metadata.",
     )
     inspect.add_argument("directory", type=Path)
-    inspect.add_argument("--instrument", help="instrument name (default: identify from headers)")
+    which = inspect.add_mutually_exclusive_group()
+    which.add_argument("--instrument", help="instrument name (default: identify from headers)")
+    which.add_argument(
+        "--instrument-file", type=Path, help="TOML file of your own instrument definition"
+    )
     inspect.add_argument("--channel", help="channel (default: the instrument's default channel)")
     inspect.add_argument("--include", action="append", help="keep names containing this token")
     inspect.add_argument("--exclude", action="append", default=[], help="drop names with token")
@@ -197,11 +201,14 @@ def _cmd_resources_fetch(args: argparse.Namespace) -> int:
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
     """``inspect``: identify the instrument and print one line per exposure."""
-    from gtellcorr.data.observation import Observation
+    from gtellcorr.data.observation import Observation, load_instrument_file
 
+    instrument = args.instrument
+    if args.instrument_file is not None:
+        instrument = load_instrument_file(args.instrument_file)
     obs = Observation.from_directory(
         args.directory,
-        instrument=args.instrument,
+        instrument=instrument,
         channel=args.channel,
         include=args.include,
         exclude=args.exclude,

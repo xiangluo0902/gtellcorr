@@ -27,7 +27,9 @@ from gtellcorr.fitting import (
 )
 from gtellcorr.fitting.config import Wavelength
 from gtellcorr.fitting.solver import joint_layout
+from gtellcorr.fitting.stellar_shift import ShiftableStellarModel, stellar_on_data
 from gtellcorr.fitting.wave_shift import C_KMS, corrected_wavelengths, offset_velocity, shifted_grid
+from gtellcorr.preprocessing.config import StellarModelConfig
 from gtellcorr.telluric.order_cache import OrderCache
 
 NEID = instruments.get("NEID")
@@ -36,21 +38,29 @@ LINES = {"h2o": (690.2, 691.5, 693.1, 694.8), "o2": (690.8, 692.4, 695.9)}
 
 
 class FakeTau:
-    """Transmission exp(-sum_m column_m * tau_m) with Gaussian lines per molecule."""
+    """Transmission exp(-sum_m column_m * tau_m) with Gaussian lines per molecule,
+    times exp(-broadband) when a broadband (continuum) optical depth is given."""
 
-    def __init__(self) -> None:
+    def __init__(self, broadband: np.ndarray | None = None) -> None:
         self.tau = {
             m: sum(0.8 * np.exp(-0.5 * ((GRID - c) / 0.004) ** 2) for c in centres)
             for m, centres in LINES.items()
         }
+        self.broadband = broadband
 
     def transmittance(self, **columns: float) -> np.ndarray:
-        return np.exp(-sum(columns[m] * self.tau[m] for m in columns))
+        lines = np.exp(-sum(columns[m] * self.tau[m] for m in columns))
+        return lines if self.broadband is None else lines * np.exp(-self.broadband)
+
+    def continuum_transmittance(self, **columns: float) -> np.ndarray | None:
+        return None if self.broadband is None else np.exp(-self.broadband)
 
 
-def cache(molecules: tuple[str, ...] = ("h2o", "o2")) -> OrderCache:
+def cache(
+    molecules: tuple[str, ...] = ("h2o", "o2"), broadband: np.ndarray | None = None
+) -> OrderCache:
     return OrderCache(
-        tau_cache=FakeTau(),
+        tau_cache=FakeTau(broadband),
         wave_nm=GRID,
         fit_molecules=molecules,
         ref_column=dict.fromkeys(molecules, 1.0),
@@ -75,7 +85,7 @@ def spectrum(
     state = ModelState(scales=truth, resolution=resolution, lsf_shape=None, wave_shift=wave_shift)
     flat = OrderSpectrum(
         wave_fit=x, wave_input=x, flux=np.ones_like(x), cont=np.ones_like(x),
-        err=np.full_like(x, noise), airmass=1.2,
+        err=np.full_like(x, noise),
     )  # fmt: skip
     model = evaluate_order(
         flat, cache(), spec, state, weight=np.ones_like(x), keep_mask=np.ones(x.size, bool)
@@ -425,3 +435,160 @@ def test_joint_fit_per_order_and_shared_wave_shift() -> None:
     assert a.wave_shift == b.wave_shift and a.wave_shift_err == b.wave_shift_err
     assert a.wave_shift[0] == pytest.approx(0.07, abs=5 * a.wave_shift_err[0])
     assert a.dof_mask_removed_order == 4000 - (FitConfig().continuum.order + 1)
+
+
+def _with_dips(data: OrderSpectrum) -> OrderSpectrum:
+    """*data* with unmodelled absorption (stand-ins for unmasked stellar lines)."""
+    x = np.asarray(data.wave_fit)
+    dips = sum(0.3 * np.exp(-0.5 * ((x - c) / 0.01) ** 2) for c in np.linspace(690.3, 695.7, 40))
+    return dataclasses.replace(data, flux=np.asarray(data.flux) * (1.0 - dips))
+
+
+def test_stored_continuum_is_clipped_refit() -> None:
+    spec = dataclasses.replace(spec_for(), fit_resolution=False)
+    assert spec.continuum_niter == 1 and spec.continuum_output_niter == 5
+    data = _with_dips(spectrum(TRUTH, spec.resolution_init))
+    x = np.asarray(data.wave_fit)
+    truth = 1.0 + 0.05 * (x - 693.0)
+    own = fit_single_order(data, dataclasses.replace(spec, continuum_output_niter=1), cache())
+    clipped = fit_single_order(data, spec, cache())
+    assert own.relcol == clipped.relcol  # the fit itself does not change
+    # the unclipped continuum is pulled down by the dips (~5 %); the clipped one much
+    # less (what is left comes from the fit itself, biased by the unmodelled dips)
+    own_offset = np.median(own.continuum / truth - 1)
+    clipped_offset = np.median(clipped.continuum / truth - 1)
+    assert own_offset < -0.03
+    assert abs(clipped_offset) < 0.005 and abs(clipped_offset) < abs(own_offset) / 5
+    joint = fit_joint_orders([JointOrderInput.prepare(data, spec, cache())])
+    np.testing.assert_allclose(joint.order_results[0].continuum, clipped.continuum, rtol=1e-6)
+
+
+def test_stored_continuum_is_the_fits_own_when_output_niter_equals_niter() -> None:
+    spec = dataclasses.replace(spec_for(), fit_resolution=False, continuum_output_niter=1)
+    data = _with_dips(spectrum(TRUTH, spec.resolution_init))
+    result = fit_single_order(data, spec, cache())
+    state = ModelState(scales=result.relcol, resolution=result.resolution, lsf_shape=None)
+    weight = 1.0 / np.asarray(data.err) ** 2
+    keep = np.ones(len(weight), bool)
+    own = evaluate_order(data, cache(), spec, state, weight=weight, keep_mask=keep)
+    np.testing.assert_allclose(result.continuum, own.continuum)
+
+
+def test_broadband_continuum_is_stored_with_the_continuum() -> None:
+    # the LBLRTM continua are part of the fitted model but are stored in C, not T
+    spec = dataclasses.replace(spec_for(), fit_resolution=False)
+    data = spectrum(TRUTH, spec.resolution_init)
+    x = np.asarray(data.wave_fit)
+    broadband = 0.06 + 0.01 * (GRID - 693.0)
+    extinction = np.exp(-(0.06 + 0.01 * (x - 693.0)))
+    dimmed = dataclasses.replace(data, flux=np.asarray(data.flux) * extinction)
+    plain = fit_single_order(data, spec, cache())
+    split = fit_single_order(dimmed, spec, cache(broadband=broadband))
+    # the same fit up to the noise, which the extinction scales with the flux
+    for m in TRUTH:
+        assert split.relcol[m] == pytest.approx(plain.relcol[m], abs=0.05 * plain.relcol_err[m])
+    assert np.max(split.tell_model) == pytest.approx(1.0, abs=1e-3)  # lines only
+    np.testing.assert_allclose(split.tell_model, plain.tell_model, atol=1e-4)
+    np.testing.assert_allclose(split.continuum, plain.continuum * extinction, rtol=1e-4)
+    np.testing.assert_allclose(split.flux_corrected * split.tell_model, dimmed.flux)
+    joint = fit_joint_orders([JointOrderInput.prepare(dimmed, spec, cache(broadband=broadband))])
+    np.testing.assert_allclose(joint.order_results[0].tell_model, plain.tell_model, atol=1e-4)
+    np.testing.assert_allclose(
+        joint.order_results[0].continuum, plain.continuum * extinction, rtol=1e-4
+    )
+
+
+# ---------------------------------------------------------------------------
+# stellar template velocity
+# ---------------------------------------------------------------------------
+STAR_W = np.linspace(688.5, 697.5, 18001)
+STAR_F = 1.0 - sum(
+    0.4 * np.exp(-0.5 * ((STAR_W - c) / 0.008) ** 2) for c in np.linspace(690.35, 695.65, 25)
+)
+
+
+def placed_star(x: Any) -> ShiftableStellarModel:
+    """The test template placed at RV 0 on *x*, movable by a velocity."""
+    x = np.asarray(x, float)
+    return ShiftableStellarModel(
+        lambda shift: np.interp(x, STAR_W * (1.0 + shift / C_KMS), STAR_F, left=1.0, right=1.0)
+    )
+
+
+def with_star(data: OrderSpectrum, shift_kms: float) -> OrderSpectrum:
+    """*data* times the template moved by *shift_kms* beyond its placement."""
+    star = placed_star(data.wave_fit).at(shift_kms)
+    return dataclasses.replace(data, flux=np.asarray(data.flux) * star)
+
+
+def test_zero_stellar_shift_is_bitwise_the_placed_model() -> None:
+    spec = spec_for()
+    data = spectrum(TRUTH, 1.1e5)
+    model = placed_star(data.wave_fit)
+    args = {"weight": np.ones(4000), "keep_mask": np.ones(4000, bool)}
+    plain = ModelState(scales=TRUTH, resolution=1.1e5, lsf_shape=None)
+    a = evaluate_order(data, cache(), spec, plain, stellar_model=np.asarray(model), **args)
+    b = evaluate_order(
+        data, cache(), spec, dataclasses.replace(plain, stellar_shift=0.0), stellar_model=model,
+        **args,
+    )  # fmt: skip
+    assert a.residual.tobytes() == b.residual.tobytes()
+    assert stellar_on_data(None, 0.3) is None
+    with pytest.raises(ValueError, match="ShiftableStellarModel"):
+        stellar_on_data(np.asarray(model), 0.1)
+
+
+def test_fit_spec_and_layout_of_the_stellar_shift() -> None:
+    template = FitConfig(stellar="template", stellar_model=StellarModelConfig(fit_shift=True))
+    spec = build_fit_spec((690.0, 696.0), config=template, instrument=NEID, order=84)
+    assert spec.fit_stellar_shift and spec.stellar_shift_bounds == (-2.0, 2.0)
+    assert "stellar_shift" in pack(spec)[3]
+    no_shift = FitConfig(stellar="template")  # off by default
+    for config in (FitConfig(stellar="mask"), no_shift):
+        off = build_fit_spec((690.0, 696.0), config=config, instrument=NEID, order=84)
+        assert not off.fit_stellar_shift and "stellar_shift" not in pack(off)[3]
+    joint = joint_layout(
+        {o: dataclasses.replace(shift_spec(o), fit_stellar_shift=True) for o in (84, 85)}
+    )
+    assert joint.names.count("stellar_shift") == 1  # one per exposure
+    assert "stellar_shift" in parameter_blocks.names()
+
+
+def test_fit_single_order_recovers_stellar_shift() -> None:
+    spec = dataclasses.replace(spec_for(), fit_resolution=False, fit_stellar_shift=True)
+    data = with_star(spectrum(TRUTH, spec.resolution_init), 0.12)
+    result = fit_single_order(
+        data, spec, cache(), stellar_model=placed_star(data.wave_fit), stellar_treatment="template"
+    )
+    assert result.status == "ok" and result.stellar_shift_err is not None
+    assert 0 < result.stellar_shift_err < 0.03
+    assert result.stellar_shift == pytest.approx(0.12, abs=5 * result.stellar_shift_err)
+    assert result.chi2_reduced == pytest.approx(1.0, abs=0.1)
+    assert np.array_equal(result.stellar_model, placed_star(data.wave_fit).at(result.stellar_shift))
+    fixed = fit_single_order(
+        data, dataclasses.replace(spec, fit_stellar_shift=False), cache(),
+        stellar_model=placed_star(data.wave_fit),
+    )  # fmt: skip
+    assert fixed.stellar_shift is None and fixed.chi2 > result.chi2
+    with pytest.raises(ValueError, match="ShiftableStellarModel"):
+        fit_single_order(data, spec, cache(), stellar_model=np.ones(4000))
+    with pytest.raises(ValueError, match="needs a stellar model"):
+        fit_single_order(data, spec, cache())
+
+
+def test_joint_fit_shares_stellar_shift_with_per_order_wave_shift() -> None:
+    truths = {84: (0.08,), 85: (-0.05,)}
+    inputs = []
+    for o, wave_shift in truths.items():
+        data = with_star(spectrum(TRUTH, 1.1e5, seed=o, wave_shift=wave_shift), 0.12)
+        spec = dataclasses.replace(shift_spec(o), fit_stellar_shift=True)
+        inputs.append(
+            JointOrderInput.prepare(data, spec, cache(), stellar_model=placed_star(data.wave_fit))
+        )
+    joint = fit_joint_orders(inputs, stellar_treatment="template")
+    assert "stellar_shift" in joint.parameters
+    for result in joint.order_results:
+        assert result.stellar_shift == joint.parameters["stellar_shift"]
+        assert result.stellar_shift == pytest.approx(0.12, abs=5 * result.stellar_shift_err)
+        (err,) = result.wave_shift_err
+        assert result.wave_shift[0] == pytest.approx(truths[result.order][0], abs=5 * err)

@@ -39,7 +39,8 @@ from gtellcorr.fitting.blocks import ModelState
 from gtellcorr.fitting.fit_order import JointOrderInput, fit_joint_orders, fit_single_order
 from gtellcorr.fitting.fit_spec import FitSpec, build_fit_spec, select_fit_orders_for_molecules
 from gtellcorr.fitting.results import OrderFitResult
-from gtellcorr.fitting.solver import evaluate_order, inverse_variance
+from gtellcorr.fitting.solver import evaluate_order, inverse_variance, lines_only
+from gtellcorr.fitting.stellar_shift import stellar_on_data
 from gtellcorr.settings import Settings
 from gtellcorr.telluric.geometry import Geometry
 from gtellcorr.telluric.order_cache import OrderCache
@@ -109,6 +110,11 @@ class _Loaded:
     spectra: dict[int, Any] = field(default_factory=dict)
     raw: dict[int, Any] = field(default_factory=dict)
     errors: dict[int, Exception] = field(default_factory=dict)
+
+    def grids(self) -> dict[int, Any]:
+        """The delivered pixel grid of each read order that has one."""
+        orders = {**self.raw, **self.spectra}
+        return {o: s.grid for o, s in orders.items() if getattr(s, "grid", None) is not None}
 
 
 class Pipeline:
@@ -264,7 +270,11 @@ class Pipeline:
         """Resources, stellar products and the strong-telluric mask (idempotent)."""
         if self._prepared:
             return
-        from gtellcorr.preprocessing.telluric_mask import ensure_strong_telluric_mask
+        from gtellcorr.preprocessing.telluric_mask import (
+            ensure_rv_telluric_windows,
+            ensure_strong_telluric_mask,
+            run_line_transmission,
+        )
         from gtellcorr.preprocessing.treatments import stellar_treatments
 
         self._emit(
@@ -272,9 +282,44 @@ class Pipeline:
         )
         _ = self.model  # verify the LBLRTM resources before anything is written
         if self.apply_stellar_treatment:
+            rv_windows = None
+            rv = self.config.rv
+            lm = self.config.masks.stellar_linemask
+            rv_model = rv.source == "measure" and rv.telluric_mask == "model"
+            lines_model = (
+                self.config.stellar == "mask"
+                and lm.user_file is None
+                and lm.from_spectrum == "master"
+                and lm.blend != "off"
+            )
+            transmission = None
+            if rv_model or lines_model:
+                transmission = run_line_transmission(
+                    self.model,
+                    self.observation.exposures,
+                    instrument=self.observation.instrument,
+                    fit=self.config,
+                    settings=self.settings,
+                    celestrak=self.celestrak,
+                )
+            if rv_model:
+                rv_windows = ensure_rv_telluric_windows(
+                    self.model,
+                    self.observation.exposures,
+                    instrument=self.observation.instrument,
+                    fit=self.config,
+                    settings=self.settings,
+                    transmission=transmission,
+                )
             treatment = stellar_treatments.get(self.config.stellar)()
             self.stellar = treatment.prepare(
-                self.observation, self.config, self.settings, self.layout, rv_seed=self.rv_seed
+                self.observation,
+                self.config,
+                self.settings,
+                self.layout,
+                rv_seed=self.rv_seed,
+                rv_telluric_windows=rv_windows,
+                telluric_transmission=transmission if lines_model else None,
             )
             self._emit("prepare", f"stellar products: {_describe_status(self.stellar.status)}")
             if self.plot:
@@ -345,14 +390,20 @@ class Pipeline:
         return loaded
 
     def _spec(self, spectrum: Any, order: int, exposure: Exposure) -> FitSpec:
-        """Fit specification of one order (molecules, bounds, starting R)."""
-        return build_fit_spec(
+        """Fit specification of one order (molecules, bounds, starting R); no template
+        velocity without a stellar model (front end off)."""
+        from dataclasses import replace
+
+        spec = build_fit_spec(
             (float(spectrum.wave_fit.min()), float(spectrum.wave_fit.max())),
             config=self.config,
             instrument=self.observation.instrument,
             order=order,
             resolution=exposure.resolution,  # header R (e.g. PEPSI fibre), else the default
         )
+        if spec.fit_stellar_shift and self.stellar is None:
+            spec = replace(spec, fit_stellar_shift=False)
+        return spec
 
     def _treatment_name(self) -> str:
         """Stellar treatment actually applied (``mask`` when the front end is off)."""
@@ -387,9 +438,13 @@ class Pipeline:
         profile = self._profile(exposure)
         geometry = Geometry.from_exposure(exposure)
         if self.config.relcol_mode == "single_order":
-            results, rows, metadata, fit_summary = self._fit_single(exposure, profile, geometry)
+            results, rows, metadata, fit_summary, grids = self._fit_single(
+                exposure, profile, geometry
+            )
         else:
-            results, rows, metadata, fit_summary = self._fit_joint(exposure, profile, geometry)
+            results, rows, metadata, fit_summary, grids = self._fit_joint(
+                exposure, profile, geometry
+            )
         if not results:
             return results, rows, None
         path = write_exposure_fits(
@@ -402,6 +457,7 @@ class Pipeline:
             order_metadata=metadata,
             run_metadata=self._run_metadata(exposure, results, metadata),
             provenance=self._provenance(exposure),
+            grids=grids,
         )
         if self.plot:
             self._plot_orders(path, exposure, results, metadata)
@@ -427,11 +483,12 @@ class Pipeline:
         list[tuple[bool, list[Any]]],
         dict[int, dict[str, Any]],
         dict[str, Any],
+        dict[int, Any],
     ]:
         """Fit every fit order of *exposure* on its own (``relcol_mode = "single_order"``).
 
         Returns the order results, the ``summary.csv`` rows, per-order metadata for
-        the result file and the exposure-level fit summary.
+        the result file, the exposure-level fit summary and the delivered pixel grids.
         """
         results: list[OrderFitResult] = []
         rows: list[tuple[bool, list[Any]]] = []
@@ -480,7 +537,7 @@ class Pipeline:
                 "wavesol_source": self._shift_source("fitted_order"),
             }
             rows.append((True, single_row(name, result, t_iso, elapsed, fitted=True)))
-        return results, rows, metadata, {"relcol_fit_mode": "single_order"}
+        return results, rows, metadata, {"relcol_fit_mode": "single_order"}, loaded.grids()
 
     def _fit_joint(
         self, exposure: Exposure, profile: Mapping[str, Any], geometry: Geometry
@@ -489,6 +546,7 @@ class Pipeline:
         list[tuple[bool, list[Any]]],
         dict[int, dict[str, Any]],
         dict[str, Any],
+        dict[int, Any],
     ]:
         """Fit the molecule columns jointly over several orders, then correct all orders.
 
@@ -626,9 +684,11 @@ class Pipeline:
             "output_orders": sorted(int(o) for o in loaded.spectra),
         }
         columns = ", ".join(f"{m.upper()} {v:.3f}" for m, v in joint.relcol.items())
+        if "stellar_shift" in joint.parameters:
+            columns += f"; template velocity {1000 * joint.parameters['stellar_shift']:+.1f} m/s"
         outcome = "" if joint.success else " (not converged)"
         self._emit("fit", f"{exposure.path.stem}: relative columns {columns}{outcome}")
-        return results, rows, metadata, fit_summary
+        return results, rows, metadata, fit_summary, loaded.grids()
 
     def _correct_with_shared(
         self,
@@ -646,7 +706,8 @@ class Pipeline:
     ) -> OrderFitResult:
         """Correct an output order with the exposure's shared relcols (not fitted).
 
-        R, LSF shape and wavelength correction: the medians of the fitted orders.
+        R, LSF shape and wavelength correction: the medians of the fitted orders; the
+        template velocity: the joint fit's (shared by the exposure).
         """
         from dataclasses import replace
 
@@ -654,6 +715,8 @@ class Pipeline:
         treatment = self._treatment_name()
         if not joint.relcol:
             return _identity(order, s, stellar, exclusion, treatment)
+        shared = joint.parameters.get("stellar_shift") if stellar is not None else None
+        stellar_shift = None if shared is None else float(shared)
         assert resolution is not None  # the fitted median, or the fixed R
         molecules = tuple(joint.relcol)
         spec = replace(
@@ -673,6 +736,8 @@ class Pipeline:
             lsf_shape=shape,
             fit_wave_shift=False,
             wave_shift=wave_shift,
+            fit_stellar_shift=False,
+            stellar_shift=stellar_shift,
         )
         cache = self.model.build_order_cache(
             profile,
@@ -689,6 +754,7 @@ class Pipeline:
             resolution=float(resolution),
             lsf_shape=shape,
             wave_shift=wave_shift,
+            stellar_shift=stellar_shift,
         )
         evaluated = evaluate_order(
             s,
@@ -699,7 +765,7 @@ class Pipeline:
             keep_mask=keep,
             stellar_model=stellar,
         )
-        telluric = evaluated.telluric_on_data
+        telluric, continuum = lines_only(evaluated, evaluated.continuum)
         with np.errstate(divide="ignore", invalid="ignore"):
             corrected = np.where(telluric > 0.0, s.flux / telluric, np.nan)
             err_corrected = np.where(telluric > 0.0, err / telluric, np.inf)
@@ -712,8 +778,8 @@ class Pipeline:
             tell_model=telluric,
             flux_corrected=corrected,
             err_corrected=err_corrected,
-            continuum=evaluated.continuum,
-            stellar_model=stellar,
+            continuum=continuum,
+            stellar_model=stellar_on_data(stellar, stellar_shift),
             exclusion=exclusion,
             relcol={m: float(joint.relcol[m]) for m in molecules},
             relcol_err={m: float(joint.relcol_err.get(m, np.nan)) for m in molecules},
@@ -721,6 +787,10 @@ class Pipeline:
             lsf_kind=spec.lsf_kind,
             lsf_shape=float(shape) if shape is not None else None,
             wave_shift=wave_shift,
+            stellar_shift=stellar_shift,
+            stellar_shift_err=(
+                joint.parameter_errors.get("stellar_shift") if stellar_shift is not None else None
+            ),
             stellar_treatment=treatment,
             status="corrected_not_fitted",
         )
@@ -741,24 +811,28 @@ class Pipeline:
             "time_utc": exposure.time_utc.isoformat(),
             "airmass": f"{float(exposure.airmass):.8g}",
             "airmass_source": exposure.airmass_source,
-            "run_root": str(self.layout.root),
+            # paths relative to the output directory or the run directory, resources
+            # outside them by name: a result file names no directory of this machine
+            "run_root": self.layout.root.relative_to(self.layout.root.parents[2]).as_posix(),
             "stellar_treatment": self._treatment_name(),
             "relcol_fit_mode": self.config.relcol_mode,
             "fit_orders": json.dumps(
                 [int(r.order) for r in results if metadata.get(int(r.order), {}).get("used_in_fit")]
             ),
             "output_orders": json.dumps([int(r.order) for r in results]),
-            "rv_table": str(self.stellar.rv_table) if self.stellar is not None else "",
+            "rv_table": (
+                _within(self.stellar.rv_table, self.layout.root) if self.stellar is not None else ""
+            ),
             "lower_backend": self.config.atmosphere.lower_backend,
             "upper_source": self.config.atmosphere.upper_source,
             "gtellcorr_version": __version__,
             "config_sha256": self.config_hash,
-            "lblrtm_bundle": str(model.resources.bundle),
+            "lblrtm_bundle": Path(model.resources.bundle).name,
             "lblrtm_local_fingerprint": model.resources.local_fingerprint,
             "lblrtm_setup": model.resources.setup_id,
             "lblrtm_timeout_s": f"{model.timeout_s:.8g}",
             "lblrtm_wave_margin_nm": f"{model.config.wave_margin_nm:.8g}",
-            "tau_cache": str(model.tau_cache),
+            "tau_cache": Path(model.tau_cache).name,
             "rv_seed": "" if self.rv_seed is None else str(self.rv_seed),
         }
 
@@ -882,7 +956,7 @@ class Pipeline:
             "exposures": [e.path.name for e in self.observation.exposures],
             "config_sha256": self.config_hash,
             "lblrtm_local_fingerprint": self.model.resources.local_fingerprint,
-            "summary_path": str(summary),
+            "summary_path": _within(summary, self.layout.root),
             "figure_count": len(figures),
             "figures": list(figures),
         }
@@ -896,6 +970,15 @@ class Pipeline:
 
 
 # ---------------------------------------------------------------------------
+def _within(path: Path, root: Path) -> str:
+    """*path* relative to *root* (POSIX form); its name if it lies outside *root*."""
+    path = Path(path)
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.name
+
+
 def _median(results: Sequence[OrderFitResult], attribute: str) -> float | None:
     """Median of a numeric result attribute over the orders where it is finite."""
     values = []
@@ -928,7 +1011,7 @@ def _identity(order: int, s: Any, stellar: Any, exclusion: Any, treatment: str) 
         flux_corrected=s.flux.copy(),
         err_corrected=s.err.copy(),
         continuum=np.ones_like(s.flux),
-        stellar_model=stellar,
+        stellar_model=stellar_on_data(stellar, None),
         exclusion=np.zeros_like(s.flux, dtype=bool) if exclusion is None else exclusion,
         lsf_kind="",
         stellar_treatment=treatment,

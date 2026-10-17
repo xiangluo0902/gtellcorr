@@ -121,3 +121,32 @@ def test_stellar_linemask_and_exclusion(tmp_path: Path) -> None:
     assert not fit_exclusion(grid).any()
     with pytest.raises(FileNotFoundError, match="stellar-line mask missing"):
         fit_exclusion(grid, stellar_mask_file=tmp_path / "none.txt")
+
+
+def test_rv_telluric_windows_from_line_transmission(caplog: pytest.LogCaptureFixture) -> None:
+    from gtellcorr.config.fit_config import FitConfig
+    from gtellcorr.preprocessing.config import RVConfig
+    from gtellcorr.preprocessing.rv import rv_mask_windows
+    from gtellcorr.preprocessing.telluric_mask import line_transmission_windows
+
+    wave = np.linspace(600.0, 610.0, 10001)
+    # two lines: 2 % deep at 602 nm, 0.6 % deep at 607 nm
+    line = 1.0 - 0.02 * np.exp(-0.5 * ((wave - 602.0) / 0.01) ** 2)
+    line -= 0.006 * np.exp(-0.5 * ((wave - 607.0) / 0.01) ** 2)
+    ((lo, hi),) = line_transmission_windows(wave, line, threshold=0.99)
+    assert lo < 602.0 < hi and hi - lo < 0.05
+    # at twice the airmass the 0.6 % line reaches 1.2 % and is masked too
+    assert len(line_transmission_windows(wave, line, threshold=0.99, airmass_ratio=2.0)) == 2
+    ((plo, phi),) = line_transmission_windows(wave, line, threshold=0.99, pad_kms=3.0)
+    assert plo == pytest.approx(lo - 3.0 / 299792.458 * 0.5 * (lo + hi))
+    assert phi - hi == pytest.approx(lo - plo)
+    with pytest.raises(ValueError, match="airmass_ratio"):
+        line_transmission_windows(wave, line, threshold=0.99, airmass_ratio=0.0)
+
+    fit = FitConfig()
+    model = rv_mask_windows(fit.rv, fit.molecules, [], [(602.0, 602.1)])
+    assert model[0] == (602.0, 602.1)  # model windows as given, no band windows
+    assert all(not (627.0 <= 0.5 * (a + b) <= 630.0) for a, b in model)
+    bands = rv_mask_windows(RVConfig(telluric_mask="bands"), fit.molecules, [])
+    assert bands == rv_mask_windows(fit.rv, fit.molecules, [])  # fallback: the bands
+    assert "no telluric model windows" in caplog.text

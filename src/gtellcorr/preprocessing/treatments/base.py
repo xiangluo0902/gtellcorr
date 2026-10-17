@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 import numpy as np
 from numpy.typing import NDArray
 
+from gtellcorr.fitting.stellar_shift import ShiftableStellarModel
+
 if TYPE_CHECKING:
     from gtellcorr.config.fit_config import FitConfig
     from gtellcorr.data.observation.observation import Observation
@@ -16,8 +18,10 @@ if TYPE_CHECKING:
 
 __all__ = ["OrderStellarModel", "StellarTreatment"]
 
-OrderStellarModel = tuple[NDArray[np.float64] | None, NDArray[np.bool_]]
-"""``(stellar model M on the order grid or None, exclusion mask with True = exclude)``."""
+OrderStellarModel = tuple[NDArray[np.float64] | ShiftableStellarModel | None, NDArray[np.bool_]]
+"""``(stellar model M on the order grid or None, exclusion mask with True = exclude)``;
+a :class:`~gtellcorr.fitting.stellar_shift.ShiftableStellarModel` lets the fit move
+the template by a velocity."""
 
 
 class StellarTreatment(Protocol):
