@@ -36,7 +36,7 @@ dependencies = [
     "astropy>=6.1",
     "platformdirs>=4.0",
     "pandas>=2.1",
-    "pymsis>=0.10",
+    "pymsis==0.12.0",
     "requests>=2.31",
     "emcee>=3.1",
     "matplotlib>=3.8",  # figures are written by default (Pipeline(plot=True))

@@ -6,6 +6,16 @@ All notable changes to gtellcorr are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-17
+
+### Fixed
+
+- `pymsis` is pinned to 0.12.0, the version the NRLMSISE-00 upper-atmosphere profiles
+  require (they stop with an error on any other version). The dependency was
+  `pymsis>=0.10`, so a pip install picked up pymsis 0.13.0 and every run with the
+  default `upper_source = "msis00"` failed; installs from `environment.yml` were not
+  affected.
+
 ## [0.10.0] - 2026-10-17
 
 ### Changed

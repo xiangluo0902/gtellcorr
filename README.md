@@ -21,7 +21,7 @@ gtellcorr currently comes with definitions for **WIYN/NEID**, **LBT/PEPSI** and
 **VLT/ESPRESSO**; other echelle spectrographs can be described in a TOML file, and
 more instruments will follow.
 
-> Version 0.10.0 is a public preview of 1.0. It includes changes to the scientific
+> Version 0.10.1 is a public preview of 1.0. It includes changes to the scientific
 > defaults since 0.9.1. See [Upgrading from 0.9.1](#upgrading-from-091) and
 > [Known limitations](#known-limitations) before using it. The accompanying paper
 > is Luo et al., submitted to *Universe*.
@@ -33,14 +33,14 @@ earlier, pip has to compile the `pymsis` dependency, which needs a Fortran compi
 (for example `conda install -c conda-forge gfortran`).
 
 ```bash
-pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.0"
+pip install "gtellcorr @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.1"
 ```
 
 Optional extras:
 
 ```bash
-pip install "gtellcorr[era5] @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.0"   # ERA5 profiles
-pip install "gtellcorr[pysme] @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.0"  # pySME stellar templates
+pip install "gtellcorr[era5] @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.1"   # ERA5 profiles
+pip install "gtellcorr[pysme] @ git+https://github.com/xiangluo0902/gtellcorr@v0.10.1"  # pySME stellar templates
 ```
 
 `environment.yml` pins the exact library versions used for the paper:
@@ -185,7 +185,7 @@ A run writes to `<output>/<target>/<site>_<instrument>/<night>/`:
 
 ### Example data and notebooks
 
-The [v0.10.0 release](https://github.com/xiangluo0902/gtellcorr/releases/tag/v0.10.0)
+The [v0.10.1 release](https://github.com/xiangluo0902/gtellcorr/releases/tag/v0.10.1)
 has an example data set, `gtellcorr-example-pepsi.zip`: one PEPSI spectrum of the K
 dwarf TOI-2076 (LBT, 2025 June 19), the ERA5 data of its atmospheric profile and a pySME
 stellar template, with a run file. Unzip it and, from its folder:

@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use gtellcorr, please cite the paper below and the software version you used."
 title: "gtellcorr"
 type: software
-version: 0.10.0
+version: 0.10.1
 date-released: 2026-10-17
 license: MIT
 repository-code: "https://github.com/xiangluo0902/gtellcorr"
