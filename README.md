@@ -194,8 +194,9 @@ stellar template, with a run file. Unzip it and, from its folder:
 GTELLCORR_ATMOSPHERE_CACHE=atmos_profiles gtellcorr run run.toml -o out
 ```
 
-No weather-archive account is needed, since the profile data are included; the LBLRTM
-bundle and the reference files must be set up as above.
+No weather-archive account is needed, since the profile data are included. Reading
+the ERA5 data still needs the `era5` extra (`pip install "gtellcorr[era5] @ ..."`
+above), and the LBLRTM bundle and the reference files must be set up as above.
 
 `examples/paper/` holds the notebooks (with script versions) that reproduce the
 corrections of the paper: a night of PEPSI spectra of TOI-2076, the mask and template
